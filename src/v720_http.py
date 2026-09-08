@@ -13,9 +13,17 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 import netifaces
 from netcl_udp import netcl_udp
-from a9_live import PORT, WAV_HDR
+from a9_live import WAV_HDR
 
-TCP_PORT = PORT
+try:
+    import paho.mqtt.publish as mqtt_publish
+    _HAVE_PAHO = True
+except ImportError:
+    _HAVE_PAHO = False
+
+# Porta do relay de dados usada pelo firmware 202601081657 (29940).
+# O fake server (v720_sta) escuta nela; o confCheck devolve pra camera.
+TCP_PORT = int(os.environ.get('RELAY_PORT', '29940'))
 HTTP_PORT = 80
 
 
@@ -86,6 +94,7 @@ class v720_http(log, SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(_devs).encode('utf-8'))
 
     def __video_hnd(self, dev):
+        self._publish_open_channel(dev.id)
 
         q = Queue(v720_http._FRAME_Q_SIZE)
         def _on_video_frame(dev, frame):
@@ -127,13 +136,42 @@ class v720_http(log, SimpleHTTPRequestHandler):
         except BrokenPipeError:
             self.err(f'Connection closed by peer @ {dev.id} ({self.client_address[0]})')
 
+    @staticmethod
+    def _publish_open_channel(uid):
+        broker = os.environ.get('BROKER', '192.168.50.1')
+        host = os.environ.get('FAKE_SRV_HOST', '192.168.50.1')
+        port = int(os.environ.get('RELAY_PORT', TCP_PORT))
+        user_id = os.environ.get('FAKE_SRV_USERID', '7eba2591eaa08c41e2f8de7733983f49')
+        timezone = int(os.environ.get('FAKE_SRV_TIMEZONE', '-3'))
+        connect_id = os.environ.get('FAKE_SRV_CONNECTID', '') or f'{random.randint(0,0xffffffffffffffff):016x}{random.randint(0,0xffffffffffffffff):016x}'
+        topic = f'Naxclow/P2P/Users/Device/sub/{uid}'
+
+        def _pub(payload):
+            try:
+                if _HAVE_PAHO:
+                    mqtt_publish.single(topic, json.dumps(payload), hostname=broker, port=1883)
+                else:
+                    import subprocess
+                    subprocess.run(['mosquitto_pub', '-h', broker, '-t', topic, '-m', json.dumps(payload)],
+                                   check=False, capture_output=True)
+            except Exception as e:
+                log_mod = __import__('log')
+                log_mod.log('HTTP').warn(f'[MQTT->{uid}] falha ao publicar {payload.get("code")}: {e}')
+                return
+            log_mod = __import__('log')
+            log_mod.log('HTTP').info(f'[MQTT->{uid}] published {payload.get("code")} host={host} tcpPort={port}')
+
+        _pub({"code": 216, "ntpTimer": int(datetime.timestamp(datetime.now())), "timeZone": timezone})
+        _pub({"code": 249, "cloudStorage": 0})
+        _pub({"code": 240, "domain": "v720.naxclow.com", "host": host,
+              "pwd": "ef830de3", "connectId": connect_id, "userId": user_id})
+
     def __audio_hnd(self, dev):
         q = Queue(v720_http._FRAME_Q_SIZE)
 
         def _on_audio_frame(dev, frame):
             if q.full():
                 q.get()
-
             q.put(frame)
 
         dev.set_aframe_cb(_on_audio_frame)
@@ -233,10 +271,47 @@ class v720_http(log, SimpleHTTPRequestHandler):
                    "data": f"0800c00{random.randint(0,99999):05d}"}
         elif self.path.startswith('/app/api/ApiSysDevicesBatch/confirm'):
             ret = {"code": 200, "message": "OK", "data": None}
-        elif self.path.startswith('/app/api/ApiSysDevices/a9bindingAppDevice'):
+        elif self.path.startswith('/app/api/ApiAppUser/setTimeZone'):
             ret = {"code": 200, "message": "OK", "data": None}
+        elif self.path.startswith('/err/api/ApiAppErrLog/save'):
+            ret = {"code": 200, "message": "OK", "data": None}
+        elif self.path.startswith('/app/api/ApiSysDevices/a9bindingAppDevice'):
+            devid = ''
+            ukey = ''
+            q = self.path.split('?', 1)[1] if '?' in self.path else ''
+            for param in q.split('&'):
+                if param.startswith('devicesCode'):
+                    devid = param.split('=', 1)[1]
+                elif param.startswith('userKey'):
+                    ukey = param.split('=', 1)[1]
+            ret = {"code": 200, "message": "OK", "data": None}
+            if devid:
+                try:
+                    os.environ['FAKE_SRV_USERID'] = ukey or os.environ.get('FAKE_SRV_USERID', '')
+                    user_id = os.environ.get('FAKE_SRV_USERID', '7eba2591eaa08c41e2f8de7733983f49')
+                    ret = {"code": 200, "message": "OK", "data": {
+                        "userInfo_userId": user_id,
+                        "ota_url": None,
+                        "ota_version": None,
+                        "ntpTimer": int(datetime.timestamp(datetime.now())),
+                        "userInfo_state": 1,
+                        "timeZone": int(os.environ.get('FAKE_SRV_TIMEZONE', '-3')),
+                        "cloudStorage": 0,
+                    }}
+                    self._publish_open_channel(devid)
+                except Exception as e:
+                    self.warn(f'Falha ao publicar open-channel (a9binding): {e}')
         elif self.path.startswith('/app/api/ApiSysDevices/getDevInfo'):
-            ret = {"code": 200, "message": "OK", "data": { "userInfo_state": 1 }}
+            user_id = os.environ.get('FAKE_SRV_USERID', '7eba2591eaa08c41e2f8de7733983f49')
+            ret = {"code": 200, "message": "OK", "data": {
+                "userInfo_userId": user_id,
+                "ota_url": None,
+                "ota_version": None,
+                "ntpTimer": int(datetime.timestamp(datetime.now())),
+                "userInfo_state": 1,
+                "timeZone": int(os.environ.get('FAKE_SRV_TIMEZONE', '-3')),
+                "cloudStorage": 0,
+            }}
         elif self.path.startswith('/app/api/ApiServer/getA9ConfCheck'):
             uid = f'{random.randint(0,99999):05d}'
             p = self.path[len('/app/api/ApiServer/getA9ConfCheck?'):]
@@ -254,7 +329,7 @@ class v720_http(log, SimpleHTTPRequestHandler):
                 "code": 200,
                 "message": "OK",
                 "data": {
-                    "tcpPort": TCP_PORT,
+                    "tcpPort": int(os.environ.get('RELAY_PORT', TCP_PORT)),
                     "uid": uid,
                     "isBind": "8",
                     "domain": "v720.naxclow.com",

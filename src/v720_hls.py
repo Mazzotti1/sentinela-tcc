@@ -8,7 +8,6 @@ com jitter. Com HLS o navegador tem buffer e toca continuo.
 """
 from __future__ import annotations
 import os
-import shutil
 import subprocess
 import threading
 
@@ -32,6 +31,9 @@ class v720_hls:
         with v720_hls._lock:
             inst = v720_hls._insts.get(uid)
             if inst is None or not inst.alive():
+                if inst is not None:
+                    print(f'[HLS {uid}] ffmpeg saiu (rc={inst._proc.returncode}), '
+                          f'frames={inst.frames}, recriando', flush=True)
                 inst = v720_hls(dev, uid)
                 v720_hls._insts[uid] = inst
             else:
@@ -42,8 +44,8 @@ class v720_hls:
         self.uid = uid
         self.dev = dev
         self.dir = v720_hls.root(uid)
-        if os.path.isdir(self.dir):
-            shutil.rmtree(self.dir, ignore_errors=True)
+        # NAO limpa o dir: preserva o ultimo index.m3u8/segmentos pra nao abrir
+        # janela de 404 quando o ffmpeg e recriado (a camera cicla o TCP).
         os.makedirs(self.dir, exist_ok=True)
         self.playlist = os.path.join(self.dir, 'index.m3u8')
         self.frames = 0

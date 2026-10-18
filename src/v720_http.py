@@ -103,7 +103,12 @@ class v720_http(log, SimpleHTTPRequestHandler):
             q.put(frame)
 
         dev.set_vframe_cb(_on_video_frame)
+        started = False
         try:
+            dev.cap_live()
+            # Espera o 1o frame ANTES de mandar o 200: se nao vier, responde 502
+            # completo (sem isso o cliente fica pendurado esperando os headers).
+            img = q.get(timeout=5)
             self.warn(f'Live video request @ {dev.id} ({self.client_address[0]})')
             self.send_response(200)
             self.send_header('Connection', 'keep-alive')
@@ -111,30 +116,27 @@ class v720_http(log, SimpleHTTPRequestHandler):
             self.send_header('Pragma', 'no-cache')
             self.send_header('Content-type', 'multipart/x-mixed-replace; boundary="jpgboundary"')
             self.end_headers()
-            dev.cap_live()
+            started = True
             while not self.wfile.closed:
-                img = q.get(timeout=5)
-                self.wfile.write(b"--jpgboundary\r\n")
+                self.wfile.write(b'--jpgboundary\r\n')
                 self.send_header('Content-type', 'image/jpeg')
                 self.end_headers()
                 self.wfile.write(img)
                 self.wfile.write(b'\r\n')
+                img = q.get(timeout=5)
 
         except Empty:
             self.err('Camera request timeout')
-            self.send_response(502, f'Camera request timeout {dev.id}@{dev.host}:{dev.port}')
+            if not started:
+                try:
+                    self.send_error(502, f'Camera request timeout {dev.id}@{dev.host}:{dev.port}')
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
         except BrokenPipeError:
             self.err(f'Connection closed by peer @ {dev.id} ({self.client_address[0]})')
         finally:
             dev.unset_vframe_cb(_on_video_frame)
             dev.cap_stop()
-
-        try:
-            self.send_header('Content-length', 0)
-            self.send_header('Connection', 'close')
-            self.end_headers()
-        except BrokenPipeError:
-            self.err(f'Connection closed by peer @ {dev.id} ({self.client_address[0]})')
 
     @staticmethod
     def _publish_open_channel(uid):
@@ -175,7 +177,10 @@ class v720_http(log, SimpleHTTPRequestHandler):
             q.put(frame)
 
         dev.set_aframe_cb(_on_audio_frame)
+        started = False
         try:
+            dev.cap_live()
+            frm = q.get(timeout=5)
             self.warn(f'Audio request @ {dev.id} ({self.client_address[0]})')
             self.send_response(200)
             self.send_header('Connection', 'close')
@@ -186,28 +191,24 @@ class v720_http(log, SimpleHTTPRequestHandler):
             self.send_header('Pragma', 'no-cache')
             self.send_header('Content-type', 'audio/wav')
             self.end_headers()
-            dev.cap_live()
+            started = True
             self.wfile.write(WAV_HDR)
             while not self.wfile.closed:
-                frm = q.get(timeout=5)
                 self.wfile.write(frm)
+                frm = q.get(timeout=5)
 
         except Empty:
             self.err('Camera request timeout')
-            self.send_response(502, f'Camera request timeout {dev.id}@{dev.host}:{dev.port}')
+            if not started:
+                try:
+                    self.send_error(502, f'Camera request timeout {dev.id}@{dev.host}:{dev.port}')
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
         except BrokenPipeError:
             self.err(f'Connection closed by peer @ {dev.id} ({self.client_address[0]})')
         finally:
             dev.unset_aframe_cb(_on_audio_frame)
             dev.cap_stop()
-
-        try:
-            self.send_header('Content-length', 0)
-            self.send_header('Connection', 'close')
-            self.end_headers()
-        except BrokenPipeError:
-            self.err(
-                f'Connection closed by peer @ {dev.id} ({self.client_address[0]})')
 
     def __snapshot_hnd(self, dev):
         self.warn(f'Snapshot request @ {dev.id} ({self.client_address[0]})')
@@ -230,7 +231,10 @@ class v720_http(log, SimpleHTTPRequestHandler):
 
         except Empty:
             self.err('Camera request timeout')
-            self.send_response(502, f'Camera request timeout {dev.id}@{dev.host}:{dev.port}')
+            try:
+                self.send_error(502, f'Camera request timeout {dev.id}@{dev.host}:{dev.port}')
+            except (BrokenPipeError, ConnectionResetError):
+                pass
         except (BrokenPipeError, ConnectionResetError):
             self.err(f'Connection closed by peer @ {dev.id} ({self.client_address[0]})')
         finally:

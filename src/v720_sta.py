@@ -207,14 +207,8 @@ class v720_sta(log):
             self._disconnect_cb = None
 
     def __tcp_hnd(self):
+        # Espera o registro da camera (code 100) antes de mandar qualquer coisa.
         self._channel_hs = False
-        try:
-            self.__send_registration(self._tcp)
-            self.__initial_sequence()
-            self.__start_live()
-            self._channel_hs = True
-        except Exception as e:
-            self.warn(f'Falha no handshake inicial do relay: {e}')
 
         while not self._tcp.is_closed:
             self.__on_tcp_rcv(self._tcp.recv())
@@ -301,6 +295,13 @@ class v720_sta(log):
         })
         self.dbg(f'send registration response: {resp}')
         conn.send(resp.req())
+        try:
+            self.__send_nat_probe(conn)
+            self.__initial_sequence()
+            self.__start_live()
+            self._channel_hs = True
+        except Exception as e:
+            self.warn(f'Falha no handshake apos registro: {e}')
         if self._init_done_cb is not None and callable(self._init_done_cb):
             self._init_done_cb(self)
         v720_sta.DEVS.append(self)

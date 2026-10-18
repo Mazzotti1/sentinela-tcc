@@ -48,8 +48,12 @@ class v720_hls:
 
         cmd = [
             v720_hls.FFMPEG, '-hide_banner', '-loglevel', os.environ.get('HLS_LOGLEVEL', 'warning'),
-            '-f', os.environ.get('HLS_INFMT', 'mjpeg'),
-            '-framerate', v720_hls.FRAMERATE, '-i', 'pipe:0',
+            '-f', os.environ.get('HLS_INFMT', 'image2pipe'),
+            '-vcodec', os.environ.get('HLS_INCODEC', 'mjpeg'),
+            '-framerate', v720_hls.FRAMERATE,
+            '-probesize', os.environ.get('HLS_PROBESIZE', '10M'),
+            '-analyzeduration', os.environ.get('HLS_ANALYZE', '10M'),
+            '-i', 'pipe:0',
             '-an',
             '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
             '-pix_fmt', 'yuv420p', '-g', '40', '-sc_threshold', '0',

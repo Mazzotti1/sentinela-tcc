@@ -66,6 +66,12 @@ class v720_hls:
             stdout=subprocess.DEVNULL, stderr=self._err)
         self._cb = self._on_frame
         dev.set_vframe_cb(self._cb)
+        # cap_live dispara o NAT probe e mantem o canal UDP de dados associado —
+        # sem ele o callback nunca recebe frame (mesmo caminho do /live).
+        try:
+            dev.cap_live()
+        except Exception:
+            pass
 
     def alive(self) -> bool:
         return self._proc.poll() is None
@@ -83,6 +89,10 @@ class v720_hls:
         try:
             self.dev.unset_vframe_cb(self._cb)
         except (ValueError, AttributeError):
+            pass
+        try:
+            self.dev.cap_stop()
+        except Exception:
             pass
         try:
             if self._proc.stdin:

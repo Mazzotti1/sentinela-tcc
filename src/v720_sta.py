@@ -410,25 +410,11 @@ class v720_sta(log):
         if self._lstnr_cnt == 0:
             self.warn(f'Capture is not started')
             return
-        elif self._lstnr_cnt == 1:
-            resp = self.__prep_fwd({
-                'code': cmd_udp.CODE_FORWARD_CLOSE_A_CLOSE_V
-            })
-            self.dbg(f'Send stop streaming (close_video/close_audio) {resp}')
-            self._tcp.send(resp.req())
-            self._first_retrans_send = False
-            if self._retrans_tmr:
-                self._retrans_tmr.cancel()
-                self._retrans_tmr = None
-
-            if self._udp:
-                with self._udp_mtx:
-                    self._udp.close()
-                    del self._udp
-                    self._udp = None
-            self._lstnr_cnt = 0
-        else:
-            self._lstnr_cnt -= 1
+        # NAO derruba o stream ao sair do /live ou /snapshot: aqui o fake E o
+        # relay e a camera streama de forma continua. Mandar close_video + fechar
+        # o UDP fazia a camera entrar em rajada de heartbeat e derrubar o TCP.
+        # O proximo request reaproveita o mesmo UDP.
+        self._lstnr_cnt -= 1
 
     def __on_open_video(self, conn: netsrv_tcp, pkg: prot_json_udp):
         self.warn(f'Starting video streaming')

@@ -385,6 +385,13 @@ class v720_sta(log):
         self.info(f'Found device, starting video-streaming')
         self.__start_live()
 
+    def send_forward(self, code: int) -> None:
+        """Envia um CODE_FORWARD (301) com o content.code pedido. Usado pra
+        experimentar qual comando solta o video (3=abre A+V, 2=so V, 218=SD)."""
+        resp = self.__prep_fwd({'code': code})
+        self.info(f'Send forward content.code={code}')
+        self._tcp.send(resp.req())
+
     def __start_live(self):
         resp = self.__prep_fwd({
             'code': cmd_udp.CODE_FORWARD_OPEN_A_OPEN_V

@@ -325,6 +325,26 @@ if(window.Hls && Hls.isSupported()){
                         self.send_error(404, 'Not found')
                     else:
                         self.__hls_page(_dev)
+                elif _cmd == 'fwd' and _dev is not None:
+                    v = 3
+                    q = self.path.split('?', 1)[1] if '?' in self.path else ''
+                    for p in q.split('&'):
+                        if p.startswith('v='):
+                            try:
+                                v = int(p.split('=', 1)[1])
+                            except ValueError:
+                                pass
+                    try:
+                        _dev.send_forward(v)
+                    except Exception as e:
+                        self.warn(f'fwd {v} falhou: {e}')
+                    body = f'fwd content.code={v} enviado\n'.encode('utf-8')
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/plain')
+                    self.send_header('Content-length', str(len(body)))
+                    self.send_header('Connection', 'close')
+                    self.end_headers()
+                    self.wfile.write(body)
                 elif _dev is not None and _cmd in self._dev_hnds:
                     self._dev_hnds[_cmd](_dev)
                 else:

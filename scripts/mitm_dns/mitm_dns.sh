@@ -340,7 +340,7 @@ rdr-anchor "mitm_dns"
       pfctl -e >/dev/null 2>&1 && touch "$RUN_DIR/pf_we_enabled"
     fi
   else
-    local specs=("tcp 29940 $RELAY_PORT" "tcp 29942 $RELAY_PORT" "udp 29940 $RELAY_PORT" "udp 29942 $RELAY_PORT")
+    local specs=("tcp 29939 $RELAY_PORT" "tcp 29940 $RELAY_PORT" "tcp 29942 $RELAY_PORT" "udp 29939 $RELAY_PORT" "udp 29940 $RELAY_PORT" "udp 29942 $RELAY_PORT")
     [[ "$DNAT_MODE" == "relay" ]] || specs=("tcp 80 80" "tcp 1883 1883" "${specs[@]}")
     local spec proto dport toport
     for spec in "${specs[@]}"; do

@@ -79,7 +79,7 @@ class v720_sta(log):
                             if int(pkg.json["code"]) == cmd_udp.CODE_C2S_UDP_REQ:
                                 resp = prot_json_udp(json={
                                         'code': cmd_udp.CODE_S2C_UDP_RSP,
-                                        'ip': netsrv_udp.get_ip(conn._host,conn._port),
+                                        'ip': conn._host,
                                         'port': conn._port,
                                 })
                                 conn.send(resp.req())

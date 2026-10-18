@@ -246,23 +246,22 @@ class v720_http(log, SimpleHTTPRequestHandler):
 <html><head><meta charset="utf-8"><title>live</title>
 <style>html,body{margin:0;height:100%;background:#000}
 video{width:100%;height:100%;background:#000}
-#s{position:fixed;top:6px;left:8px;color:#0f0;font:12px monospace}</style></head>
-<body><video id="v" autoplay muted playsinline controls></video><div id="s">conectando...</div>
+#s{position:fixed;top:6px;left:8px;color:#0f0;font:12px monospace}
+#b{position:fixed;top:6px;right:8px}</style></head>
+<body><video id="v" autoplay muted playsinline controls></video>
+<div id="s">conectando...</div><button id="b" onclick="location.reload()">reload</button>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
 <script>
-const src='/dev/hls/__UID__/index.m3u8';
-const v=document.getElementById('v'), s=document.getElementById('s');
-function load(){
-  if(window.Hls && Hls.isSupported()){
-    const h=new Hls({lowLatencyMode:true, liveSyncDurationCount:2});
-    h.loadSource(src); h.attachMedia(v);
-    h.on(Hls.Events.MANIFEST_PARSED,()=>{v.play(); s.textContent='ok';});
-    h.on(Hls.Events.ERROR,(e,d)=>{s.textContent='erro: '+d.details; if(d.fatal) setTimeout(load,2000);});
-  } else if(v.canPlayType('application/vnd.apple.mpegurl')){
-    v.src=src; v.play(); s.textContent='ok';
-  } else { s.textContent='hls.js nao carregou'; }
-}
-load();
+var src='/dev/hls/__UID__/index.m3u8', v=document.getElementById('v'), s=document.getElementById('s');
+if(window.Hls && Hls.isSupported()){
+  var h=new Hls({lowLatencyMode:true, liveSyncDurationCount:2});
+  window._h=h;
+  h.loadSource(src); h.attachMedia(v);
+  h.on(Hls.Events.MANIFEST_PARSED,function(){v.play(); s.textContent='ok';});
+  h.on(Hls.Events.ERROR,function(e,d){s.textContent='erro: '+(d&&d.details);});
+} else if(v.canPlayType('application/vnd.apple.mpegurl')){
+  v.src=src; v.play(); s.textContent='ok';
+} else { s.textContent='hls.js nao carregou'; }
 </script></body></html>"""
 
     def __hls_page(self, dev):

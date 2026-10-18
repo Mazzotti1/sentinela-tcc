@@ -44,11 +44,12 @@ class v720_hls:
             shutil.rmtree(self.dir, ignore_errors=True)
         os.makedirs(self.dir, exist_ok=True)
         self.playlist = os.path.join(self.dir, 'index.m3u8')
+        self.frames = 0
 
         cmd = [
-            v720_hls.FFMPEG, '-hide_banner', '-loglevel', 'error',
-            '-fflags', 'nobuffer',
-            '-f', 'mjpeg', '-framerate', v720_hls.FRAMERATE, '-i', 'pipe:0',
+            v720_hls.FFMPEG, '-hide_banner', '-loglevel', os.environ.get('HLS_LOGLEVEL', 'warning'),
+            '-f', os.environ.get('HLS_INFMT', 'mjpeg'),
+            '-framerate', v720_hls.FRAMERATE, '-i', 'pipe:0',
             '-an',
             '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
             '-pix_fmt', 'yuv420p', '-g', '40', '-sc_threshold', '0',
@@ -58,9 +59,11 @@ class v720_hls:
             '-hls_flags', 'delete_segments+omit_endlist',
             self.playlist,
         ]
+        self.cmd = cmd
+        self._err = open(os.path.join(self.dir, 'ffmpeg.log'), 'wb')
         self._proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdout=subprocess.DEVNULL, stderr=self._err)
         self._cb = self._on_frame
         dev.set_vframe_cb(self._cb)
 
@@ -68,6 +71,7 @@ class v720_hls:
         return self._proc.poll() is None
 
     def _on_frame(self, dev, frame) -> None:
+        self.frames += 1
         if not self.alive():
             return
         try:

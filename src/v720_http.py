@@ -265,9 +265,10 @@ if(window.Hls && Hls.isSupported()){
 </script></body></html>"""
 
     def __hls_page(self, dev):
-        v720_hls.get(dev, dev.id)
+        inst = v720_hls.get(dev, dev.id)
         html = self._HLS_PAGE.replace('__UID__', dev.id).encode('utf-8')
-        self.warn(f'HLS player @ {dev.id} ({self.client_address[0]})')
+        self.warn(f'HLS player @ {dev.id} ({self.client_address[0]}) '
+                  f'ffmpeg_alive={inst.alive()} frames={inst.frames}')
         self.send_response(200)
         self.send_header('Content-type', 'text/html; charset=utf-8')
         self.send_header('Content-length', str(len(html)))

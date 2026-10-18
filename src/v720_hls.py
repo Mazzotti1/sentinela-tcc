@@ -34,6 +34,8 @@ class v720_hls:
             if inst is None or not inst.alive():
                 inst = v720_hls(dev, uid)
                 v720_hls._insts[uid] = inst
+            else:
+                inst.rebind(dev)
             return inst
 
     def __init__(self, dev, uid: str) -> None:
@@ -79,6 +81,23 @@ class v720_hls:
 
     def alive(self) -> bool:
         return self._proc.poll() is None
+
+    def rebind(self, dev) -> None:
+        """A camera cicla o TCP e vira outro objeto v720_sta; re-arma o callback
+        no device atual, senao os frames param de chegar no ffmpeg quando o uid
+        troca de instancia."""
+        if dev is self.dev:
+            return
+        try:
+            self.dev.unset_vframe_cb(self._cb)
+        except (ValueError, AttributeError):
+            pass
+        self.dev = dev
+        dev.set_vframe_cb(self._cb)
+        try:
+            dev.cap_live()
+        except Exception:
+            pass
 
     def _on_frame(self, dev, frame) -> None:
         self.frames += 1

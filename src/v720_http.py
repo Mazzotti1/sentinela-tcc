@@ -283,6 +283,11 @@ if(window.Hls && Hls.isSupported()){
             return
         uid = parts[2]
         fname = os.path.basename(parts[3])
+        # Re-arma o HLS no device atual (a camera cicla o TCP e troca de instancia):
+        # o player pede o .m3u8 periodicamente, entao isso religa sozinho.
+        _dev = v720_http._dev_lst.get(uid)
+        if _dev is not None:
+            v720_hls.get(_dev, uid)
         path = os.path.join(v720_hls.root(uid), fname)
         if not os.path.isfile(path):
             self.send_error(404, 'Not found')

@@ -30,3 +30,9 @@ apk/
 # Logs / captures
 *.log
 *.pcap
+
+# Capturas / artefatos sensíveis (stream, SSIDs, tokens, sessão)
+docs/mitm_dns_out/
+*.jsonl
+
+apk_v720

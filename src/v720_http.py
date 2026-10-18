@@ -139,7 +139,7 @@ class v720_http(log, SimpleHTTPRequestHandler):
     @staticmethod
     def _publish_open_channel(uid):
         broker = os.environ.get('BROKER', '192.168.50.1')
-        host = os.environ.get('FAKE_SRV_HOST', '192.168.50.1')
+        host = os.environ.get('FAKE_SRV_RELAY_HOST') or os.environ.get('FAKE_SRV_HOST', '192.168.50.1')
         port = int(os.environ.get('RELAY_PORT', TCP_PORT))
         user_id = os.environ.get('FAKE_SRV_USERID', '7eba2591eaa08c41e2f8de7733983f49')
         timezone = int(os.environ.get('FAKE_SRV_TIMEZONE', '-3'))
@@ -302,6 +302,11 @@ class v720_http(log, SimpleHTTPRequestHandler):
                 except Exception as e:
                     self.warn(f'Falha ao publicar open-channel (a9binding): {e}')
         elif self.path.startswith('/app/api/ApiSysDevices/getDevInfo'):
+            devid = ''
+            q = self.path.split('?', 1)[1] if '?' in self.path else ''
+            for param in q.split('&'):
+                if param.startswith('devicesCode'):
+                    devid = param.split('=', 1)[1]
             user_id = os.environ.get('FAKE_SRV_USERID', '7eba2591eaa08c41e2f8de7733983f49')
             ret = {"code": 200, "message": "OK", "data": {
                 "userInfo_userId": user_id,
@@ -312,6 +317,11 @@ class v720_http(log, SimpleHTTPRequestHandler):
                 "timeZone": int(os.environ.get('FAKE_SRV_TIMEZONE', '-3')),
                 "cloudStorage": 0,
             }}
+            if devid:
+                try:
+                    self._publish_open_channel(devid)
+                except Exception as e:
+                    self.warn(f'Falha ao publicar open-channel (getDevInfo): {e}')
         elif self.path.startswith('/app/api/ApiServer/getA9ConfCheck'):
             uid = f'{random.randint(0,99999):05d}'
             p = self.path[len('/app/api/ApiServer/getA9ConfCheck?'):]
@@ -319,7 +329,7 @@ class v720_http(log, SimpleHTTPRequestHandler):
                 if param.startswith('devicesCode'):
                     uid = param.split('=')[1]
 
-            srv_host = os.environ.get('FAKE_SRV_HOST')
+            srv_host = os.environ.get('FAKE_SRV_RELAY_HOST') or os.environ.get('FAKE_SRV_HOST')
             if not srv_host:
                 gws = netifaces.gateways()
                 srv_host = netcl_udp.get_ip(

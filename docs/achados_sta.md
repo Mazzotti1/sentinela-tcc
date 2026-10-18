@@ -94,8 +94,39 @@ Conteúdo visível: imagem real da câmera (estrutura metálica com parafusos so
 
 **OWASP IoT:** stream de mídia sem criptografia nem autenticação → **I3 (Insecure Ecosystem Interfaces) + I5 (Lack of Encryption)**.
 
+## Remontagem do stream em STA (UDP) — FEITO (2026-10-17)
+
+Captura em **modo STA** (MITM ARP spoof na LAN), com o viewer aberto. Ao contrário do modo AP (TCP), o stream em STA vai por **UDP** até o relay/cloud.
+
+**Capturas usadas:**
+- `mitm_run/capture.pcap` — MITM puro + viewer aberto.
+- `docs/mitm_dns_out/cam_dns.pcap` — MITM relay-only (DNAT 29940/29942).
+
+**Protocolo do stream (header de 20 bytes por datagrama UDP):**
+```
+len(4) cmd(2) msg_flag(1) deal_flag(1) forward_id(8) pkg_id(4) | payload
+cmd: 1 = JPEG, 6 = PCM, 0 = JSON, 100 = heartbeat
+msg_flag: 250 HEAD, 251 BODY, 252 END, 255 FINISH
+```
+Cada frame JPEG = `HEAD + N×BODY + END` (o `END` tem trailer de 5 bytes descartado).
+
+**Ferramenta:** `scripts/utils/extract_mitm_video_udp.py`
+```
+python3 scripts/utils/extract_mitm_video_udp.py mitm_run/capture.pcap --out results/udp_extract --cam-ip 192.168.0.17
+```
+
+**Resultado:**
+| Captura | Frames JPEG | Áudio |
+|---|---|---|
+| `mitm_run` | 16 (640×480) | 516 KB PCM |
+| `cam_dns` (relay-only) | 12 (640×480) | 380 KB PCM |
+
+Conteúdo: imagem real da câmera. Prova de **espionagem do stream em STA sem autenticação**.
+
+**OWASP IoT:** I3 + I5 (stream de mídia em claro, sem criptografia).
+
 ## Próximo passo (não feito ainda)
 
 - **Injeção de comando via MQTT:** o control channel está exposto. Testar `mosquitto_pub` no tópico `Naxclow/P2P/Users/Device/sub/<devicesCode>` pra controlar hardware (IR, gravação, reboot) sem auth.
-- **Capturar o stream de vídeo *no MITM STA*:** repetir a remontagem acima com um pcap tirado durante MITM ativo enquanto o app está com o viewer aberto (aí o vídeo passa pelo atacante em STA, não só em AP).
 - **Fake server (`-s`):** cenário do atacante remoto (controla DNS), ainda separado.
+- **DNAT do relay no macOS:** o `pf rdr` não entregou o relay no fake server local (ver `mitm_dns.sh relay`); contornar ou documentar como limite.

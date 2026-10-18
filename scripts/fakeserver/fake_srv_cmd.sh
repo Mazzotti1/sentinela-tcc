@@ -26,6 +26,7 @@ pub() {
 case "${1:-help}" in
     ir)        [ "${2:-on}" = on ] && pub '{"code":202,"IrLed":1}' || pub '{"code":202,"IrLed":0}' ;;
     led)       [ "${2:-on}" = on ] && pub '{"code":210,"instLed":1}' || pub '{"code":210,"instLed":0}' ;;
+    ledei)     [ "${2:-on}" = on ] && pub '{"code":220,"ledEI":1}' || pub '{"code":220,"ledEI":0}' ;;
     record)    [ "${2:-on}" = on ] && pub '{"code":209,"sdCardReco":1}' || pub '{"code":209,"sdCardReco":0}' ;;
     movealert) [ "${2:-on}" = on ] && pub '{"code":205,"moveAlert":1}' || pub '{"code":205,"moveAlert":0}' ;;
     wifiscan)  pub '{"code":211}' ;;
@@ -39,6 +40,7 @@ case "${1:-help}" in
 comandos:
   ir on|off         infravermelho (visao noturna)
   led on|off        led de status (desliga sem parar gravacao)
+  ledei on|off      led EI (code 220)
   record on|off     gravacao no SD
   movealert on|off  alerta de movimento
   wifiscan          escaneia wifi (resultado em scanWifiBase64)

@@ -14,6 +14,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import netifaces
 from netcl_udp import netcl_udp
 from a9_live import WAV_HDR
+from v720_hls import v720_hls
 
 try:
     import paho.mqtt.publish as mqtt_publish
@@ -241,21 +242,89 @@ class v720_http(log, SimpleHTTPRequestHandler):
             dev.unset_vframe_cb(_on_video_frame)
             dev.cap_stop()
 
+    _HLS_PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><title>live</title>
+<style>html,body{margin:0;height:100%;background:#000}
+video{width:100%;height:100%;background:#000}
+#s{position:fixed;top:6px;left:8px;color:#0f0;font:12px monospace}</style></head>
+<body><video id="v" autoplay muted playsinline controls></video><div id="s">conectando...</div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script>
+const src='/dev/hls/__UID__/index.m3u8';
+const v=document.getElementById('v'), s=document.getElementById('s');
+function load(){
+  if(window.Hls && Hls.isSupported()){
+    const h=new Hls({lowLatencyMode:true, liveSyncDurationCount:2});
+    h.loadSource(src); h.attachMedia(v);
+    h.on(Hls.Events.MANIFEST_PARSED,()=>{v.play(); s.textContent='ok';});
+    h.on(Hls.Events.ERROR,(e,d)=>{s.textContent='erro: '+d.details; if(d.fatal) setTimeout(load,2000);});
+  } else if(v.canPlayType('application/vnd.apple.mpegurl')){
+    v.src=src; v.play(); s.textContent='ok';
+  } else { s.textContent='hls.js nao carregou'; }
+}
+load();
+</script></body></html>"""
+
+    def __hls_page(self, dev):
+        v720_hls.get(dev, dev.id)
+        html = self._HLS_PAGE.replace('__UID__', dev.id).encode('utf-8')
+        self.warn(f'HLS player @ {dev.id} ({self.client_address[0]})')
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=utf-8')
+        self.send_header('Content-length', str(len(html)))
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.wfile.write(html)
+
+    def __hls_file(self):
+        parts = self.path.split('?', 1)[0][1:].split('/')
+        if len(parts) < 4:
+            self.send_error(404, 'Not found')
+            return
+        uid = parts[2]
+        fname = os.path.basename(parts[3])
+        path = os.path.join(v720_hls.root(uid), fname)
+        if not os.path.isfile(path):
+            self.send_error(404, 'Not found')
+            return
+        ctype = ('application/vnd.apple.mpegurl' if fname.endswith('.m3u8')
+                 else 'video/mp2t' if fname.endswith('.ts') else 'application/octet-stream')
+        try:
+            with open(path, 'rb') as fp:
+                data = fp.read()
+        except OSError:
+            self.send_error(404, 'Not found')
+            return
+        self.send_response(200)
+        self.send_header('Content-type', ctype)
+        self.send_header('Content-length', str(len(data)))
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         if self.path.startswith('/dev/list'):
             self.__dev_list()
+        elif self.path.startswith('/dev/hls/'):
+            self.__hls_file()
         elif not self.path.startswith('/dev') or self.path.startswith('/app'):
             SimpleHTTPRequestHandler.do_GET(self)
         else:
-            _path = self.path[1:].split('/')
-            if len(_path) == 3 and \
-                    _path[0] == 'dev' and \
-                    _path[1] in v720_http._dev_lst:
-                _cmd = _path[2]
-
-                if _cmd in self._dev_hnds:
-                    _dev = v720_http._dev_lst[_path[1]]
+            _path = self.path.split('?', 1)[0][1:].split('/')
+            if len(_path) == 3 and _path[0] == 'dev':
+                _uid, _cmd = _path[1], _path[2]
+                _dev = v720_http._dev_lst.get(_uid)
+                if _cmd == 'hls':
+                    if _dev is None:
+                        self.send_error(404, 'Not found')
+                    else:
+                        self.__hls_page(_dev)
+                elif _dev is not None and _cmd in self._dev_hnds:
                     self._dev_hnds[_cmd](_dev)
+                else:
+                    self.info(f'GET unknown path: {self.path}')
+                    self.send_error(404, 'Not found')
             else:
                 self.info(f'GET unknown path: {self.path}')
                 self.send_error(404, 'Not found')

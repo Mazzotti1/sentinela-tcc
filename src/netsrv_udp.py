@@ -32,7 +32,7 @@ class netsrv_udp(netsrv):
             self.is_closed = False
             self.info('Waiting for connection')
 
-        rd = self._socket.recvfrom(1024)
+        rd = self._socket.recvfrom(65535)
         for _fork in self._frk_list:
             if _fork._host == rd[1][0] and _fork._port == rd[1][1]:
                 _fork._rcv_data.put(rd)

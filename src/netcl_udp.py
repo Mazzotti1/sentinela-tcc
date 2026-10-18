@@ -35,7 +35,7 @@ class netcl_udp(netcl):
         if self._socket is None:
             return None
 
-        r = self._socket.recvfrom(1024)
+        r = self._socket.recvfrom(65535)
         self.dbg(f'[UDP-Client] recv from {r[1]}: {r[0].hex()}')
         return r
 

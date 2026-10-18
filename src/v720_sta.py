@@ -48,7 +48,10 @@ class v720_sta(log):
                 on_init_done(dev)
 
         def _on_disconnect(dev: v720_sta):
-            v720_http.rm_dev(dev)
+            # O firmware da camera cicla o TCP (registra -> cai -> reconecta em
+            # ~12-47s). NAO removemos do /dev/list: mantemos o device visivel pra
+            # /live, /snapshot e /audio responderem entre os ciclos. O reconnect
+            # sobrescreve a entrada (mesmo uid).
             if on_disconnect is not None and callable(on_disconnect):
                 on_disconnect(dev)
 
@@ -99,6 +102,7 @@ class v720_sta(log):
             f'{cmd_udp.P2P_UDP_CMD_JSON}': self.__json_hnd,
             f'{cmd_udp.P2P_UDP_CMD_HEARTBEAT}': self.__heartbeat_hnd,
             f'{cmd_udp.P2P_UDP_CMD_G711}': self.__on_audio_rcv_hnd,
+            f'{cmd_udp.P2P_UDP_CMD_PCM}': self.__on_audio_rcv_hnd,
             f'{cmd_udp.P2P_UDP_CMD_JPEG}': self.__on_mjpg_rcv_hnd,
         }
 
@@ -213,12 +217,9 @@ class v720_sta(log):
         while not self._tcp.is_closed:
             self.__on_tcp_rcv(self._tcp.recv())
 
-        if self._udp is not None:
-            with self._udp_mtx:
-                self._udp.close()
-                del self._udp
-                self._udp = None
-
+        # NAO fecha o UDP de dados quando o TCP cai: o stream da camera segue
+        # chegando e /live, /snapshot e /audio continuam servindo entre os
+        # ciclos de reconexao do firmware.
         if self._disconnect_cb is not None and callable(self._disconnect_cb):
             self._disconnect_cb(self)
         if self in v720_sta.DEVS:

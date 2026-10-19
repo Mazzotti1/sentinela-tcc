@@ -74,9 +74,9 @@ cmd: 1 = JPEG (vídeo)   4 = G711 u-law (áudio)   0 = JSON   100 = heartbeat
 ```
 Cada frame JPEG chega fragmentado em ~20 chunks de até 1400 bytes. Neste firmware (`202601081657`) o marcador SOI `FF D8 FF` só aparece no primeiro chunk de cada frame — usámos o SOI como fronteira de frame (fecha o anterior, começa o novo). Áudio G711 vem em chunks `cmd=4` intercalados.
 
-**Ferramenta:** [extract_mitm_video.py](extract_mitm_video.py) — remonta o byte-stream TCP câmera→cliente (scapy), parseia os chunks e escreve os frames + áudio.
+**Ferramenta:** [extract_mitm_video.py](../scripts/utils/extract_mitm_video.py) — remonta o byte-stream TCP câmera→cliente (scapy), parseia os chunks e escreve os frames + áudio.
 ```
-python3 extract_mitm_video.py live-tcp.pcapng --out mitm_out
+python3 scripts/utils/extract_mitm_video.py live-tcp.pcapng --out mitm_out
 ```
 
 **Resultado (em `mitm_out/`):**
@@ -125,8 +125,8 @@ Conteúdo: imagem real da câmera. Prova de **espionagem do stream em STA sem au
 
 **OWASP IoT:** I3 + I5 (stream de mídia em claro, sem criptografia).
 
-## Próximo passo (não feito ainda)
+## Desdobramentos (o que saiu daqui)
 
-- **Injeção de comando via MQTT:** o control channel está exposto. Testar `mosquitto_pub` no tópico `Naxclow/P2P/Users/Device/sub/<devicesCode>` pra controlar hardware (IR, gravação, reboot) sem auth.
-- **Fake server (`-s`):** cenário do atacante remoto (controla DNS), ainda separado.
-- **DNAT do relay no macOS:** o `pf rdr` não entregou o relay no fake server local (ver `mitm_dns.sh relay`); contornar ou documentar como limite.
+- **Injeção de comando via MQTT** — feito: o control channel aceita JSON sem auth (`wifiscan`, `record`, `ledei`, `setwifi`, `format`, `reboot`). Ver [achados_mqtt](achados_mqtt.md).
+- **Fake server (`-s`)** — feito: takeover remoto via controle de DNS. Ver [achados_fakeserver](achados_fakeserver.md).
+- **Relay / DNAT (o stream do lado do atacante)** — resolvido com relay em **IP público** (VPS) + DNAT das portas `29939`–`29942` (TCP e UDP). Ver [achados_fakeserver_relay](achados_fakeserver_relay.md). No macOS o `pf rdr` não entrega o relay no socket local — usar Linux/iptables (limite documentado).

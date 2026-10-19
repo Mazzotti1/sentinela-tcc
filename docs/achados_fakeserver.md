@@ -4,6 +4,8 @@ Cenário: câmera em uso normal (modo STA). Atacante **não** está na LAN nem c
 
 Firmware `202601081657`, câmera Naxclow Y2SN (`devicesCode: 5c001502B330`). Ambiente controlado — câmera e servidor próprios.
 
+> **Desdobramento (2026-10-19):** rodar o fake num **IP público** (VPS) + desviar o relay (ARP spoof + DNAT, portas `29939`–`29942`) **destrava o stream** — a câmera registra e entrega **vídeo + áudio** ao atacante, remotamente e sem app. Ver [achados_fakeserver_relay](achados_fakeserver_relay.md).
+
 ## Diferença dos vetores anteriores
 
 | Vetor | Posição do atacante | Precisa |
@@ -53,13 +55,13 @@ O fake server é o mais **remoto** dos três: não exige estar perto nem na mesm
 
 Câmera assina `Naxclow/P2P/Users/Device/sub/<devicesCode>` e obedece qualquer JSON publicado ali. Nenhuma credencial.
 
-Helper: [fake_srv_cmd.sh](fake_srv_cmd.sh).
+Helper: [scripts/fakeserver/fake_srv_cmd.sh](../scripts/fakeserver/fake_srv_cmd.sh).
 
 ```
-BROKER=<IP_FAKE_SRV> DEV=5c001502B330 ./docs/fake_srv_cmd.sh ir on
-BROKER=<IP_FAKE_SRV> DEV=5c001502B330 ./docs/fake_srv_cmd.sh reboot
-BROKER=<IP_FAKE_SRV> DEV=5c001502B330 ./docs/fake_srv_cmd.sh setwifi RedeAtacante senha123
-BROKER=<IP_FAKE_SRV> DEV=5c001502B330 ./docs/fake_srv_cmd.sh listen   # respostas
+BROKER=<IP_FAKE_SRV> DEV=5c001502B330 ./scripts/fakeserver/fake_srv_cmd.sh ir on
+BROKER=<IP_FAKE_SRV> DEV=5c001502B330 ./scripts/fakeserver/fake_srv_cmd.sh reboot
+BROKER=<IP_FAKE_SRV> DEV=5c001502B330 ./scripts/fakeserver/fake_srv_cmd.sh setwifi RedeAtacante senha123
+BROKER=<IP_FAKE_SRV> DEV=5c001502B330 ./scripts/fakeserver/fake_srv_cmd.sh listen   # respostas
 ```
 
 | Comando | JSON | Efeito |
@@ -122,9 +124,9 @@ Dois problemas reais achados na validação do fluxo "live" com AP + uplink USB.
    - Fix: `if self in v720_sta.DEVS:` antes do `remove`.
 
 3. **`UPLINK=` antes do `sudo` é descartado** (fakesrv_lab.sh).
-   - Sintoma: `UPLINK=usb0 sudo ./scripts/fakesrv_lab.sh up` subia o lab **sem** NAT nem `server=` no dnsmasq (o `status` não mostrava "internet liberada pros clientes do AP") e os clientes do `fakesrv` ficavam sem internet → o app V720 abortava o provisionamento.
+   - Sintoma: `UPLINK=usb0 sudo ./scripts/fakeserver/fakesrv_lab.sh up` subia o lab **sem** NAT nem `server=` no dnsmasq (o `status` não mostrava "internet liberada pros clientes do AP") e os clientes do `fakesrv` ficavam sem internet → o app V720 abortava o provisionamento.
    - Causa: o `sudo` **limpa o ambiente** e não repassa a variável `UPLINK` definida antes dele; dentro do script `UPLINK` fica vazio → `nat_up` saía cedo (`[[ -n "$UPLINK" ]] || return 0`).
-   - Fix: passar a variável **dentro** do sudo: `sudo UPLINK=usb0 ./scripts/fakesrv_lab.sh up` (aí o `nat_up` vê `usb0`, escreve `server=<gateway_do_tether>` e monta MASQUERADE/FORWARD; a default route precisa estar via `usb0` no momento do `up`).
+   - Fix: passar a variável **dentro** do sudo: `sudo UPLINK=usb0 ./scripts/fakeserver/fakesrv_lab.sh up` (aí o `nat_up` vê `usb0`, escreve `server=<gateway_do_tether>` e monta MASQUERADE/FORWARD; a default route precisa estar via `usb0` no momento do `up`).
 
 **Validação:** após os fixes, 3 conexões de teste ao relay 29942 (enviando `0x0a` + fechando) foram tratadas como erro normal (`Connection closed by peer`), sem `AttributeError`/`ValueError`/`Traceback`, e o server continuou escutando. O `takeover`/viewer agora pode completar o registro P2P.
 
@@ -138,10 +140,10 @@ Dois problemas reais achados na validação do fluxo "live" com AP + uplink USB.
 - **Uplink do AP (internet pros clientes):** resolvido passando a variável `UPLINK` **dentro** do sudo (`sudo UPLINK=usb0 ./scripts/...`).
 - **Mapeamento completo do protocolo:** documentado em `protocolo_naxclow.md` — fluxo HTTP de provisionamento (bind + getDevInfo + getA9ConfCheck), sequência MQTT (`216`→`249`→`240`) e handshake do canal de dados (`101`→`11`→`53`→`301+298/4/3`).
 
-### O que NÃO conseguimos (limite atual)
+### O que NÃO conseguimos (limite deste cenário — já superado)
 
-- **Abrir o stream de vídeo de ponta a ponta (prova de espionagem remota).** A câmera faz o provisionamento HTTP e o controle via MQTT contra o fake, mas **nunca abre o canal de dados TCP/UDP `:29940`** (o `/dev/list` fica vazio e o app mostra "offline").
-- **Sessão de streaming completa.** Ainda que os tokens fixos (`cliToken`, `userId`) e os payloads dos comandos (`216`/`249`/`240`) estejam **idênticos** ao que o cloud real captura, a câmera não completa a negociação do canal de dados. A hipótese restante é que o cloud real entrega um **relay de dados em IP público** (`107.149.x.x`) e a câmera só abre o canal para esse tipo de endpoint — algo que um fake em IP local/AP isolado não consegue replicar sem infraestrutura de relay público.
+- **Stream no fake em IP local.** Neste cenário (fake em IP local / AP isolado) a câmera faz o provisionamento HTTP e o controle via MQTT contra o fake, mas **não abre o canal de dados TCP/UDP `:29940`** (o `/dev/list` fica vazio e o app mostra "offline").
+- **Era o endpoint, não o protocolo.** Com os tokens fixos (`cliToken`, `userId`) e os payloads (`216`/`249`/`240`) **idênticos** ao cloud real, a hipótese era o **relay de dados em IP público** (`107.149.x.x`). **Confirmado:** rodando o fake num **IP público** (VPS) com desvio do relay (`29939`–`29942`), a câmera registra e entrega **vídeo + áudio**. Ver [achados_fakeserver_relay](achados_fakeserver_relay.md).
 
 ### Resumo do estado por teste
 
@@ -151,5 +153,5 @@ Dois problemas reais achados na validação do fluxo "live" com AP + uplink USB.
 | Uplink do AP (internet pros clientes) | ✅ `sudo UPLINK=usb0 ./scripts/... up` |
 | Mapeamento do protocolo (HTTP/MQTT/canal dados) | ✅ documentado em `protocolo_naxclow.md` |
 | Controle de hardware via MQTT sem auth | ✅ demonstrado (IR, reboot) |
-| Registro P2P / `/dev/list` | ⏳ câmera não abre o canal :29940 |
-| Stream remoto (MJPG/G711) | ⏳ depende do registro P2P, não alcançado |
+| Registro P2P / `/dev/list` | ✅ no relay público (VPS) · ❌ em IP local (este cenário) |
+| Stream remoto (MJPG/G711) | ✅ no relay público (`achados_fakeserver_relay.md`) · ❌ em IP local |

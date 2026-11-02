@@ -36,6 +36,7 @@ docs/
   achados_mqtt.md        Superfície de comandos do canal MQTT
   achados_fakeserver.md  Achados do servidor falso (técnico)
   achados_fakeserver_relay.md  Relay falso em IP público (VPS) — stream remoto
+  achados_sd_relay.md    SD pelo relay (sem modo AP) — testado, negativo
   protocolo_naxclow.md   Mapeamento detalhado do protocolo
   runbook_fakeserver_ap.md  Passo a passo do lab (AP isolado)
   runbook_mitm_dns.md    Passo a passo do lab (MITM + DNS spoof)

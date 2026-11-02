@@ -98,6 +98,14 @@ Proposta inicial — **revisar com a orientação do TCC**.
 Componentes comuns: `AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`. O `AV:N` do relay/DNS é o que
 distingue o achado remoto do local — mesma falha, notas diferentes.
 
+> **Comandos MQTT (`setwifi`, `format`, `reboot`, IR, LED) — não é vetor remoto autônomo.**
+> O broker real **recusa acesso anônimo** (`CONNACK 5`, testado 2026-11-02) — ver
+> [achados_mqtt](achados_mqtt.md). O controle de hardware é exercido **na posição** já
+> conquistada pelo fake server (DNS → `AV:N`) ou pelo MITM STA (credenciais vazam em claro
+> → `AV:A`). O impacto (controle total + **sequestro de rede/persistência** via `setwifi`)
+> já está contemplado nas notas acima; o `setwifi` **não** sobe a nota por si — ele
+> **pressupõe** uma dessas posições.
+
 ## Pendente — mapeado e não testado
 
 Recorte da **apresentação parcial**: o que está documentado/planejado e **ainda não foi
@@ -115,11 +123,17 @@ executado**. Ordem do [`proximos_passos.md`](proximos_passos.md).
 > desdobramento em [achados_fakeserver](achados_fakeserver.md) e o achado em
 > [achados_fakeserver_relay](achados_fakeserver_relay.md).
 
+### Testado e descartado
+
+| Item | Resultado | Evidência |
+|---|---|---|
+| SD pelo relay (sem modo AP) | **Negativo** — a câmera ignora as ops de SD (`400/402/404/406`) no envelope `301`; só responde no `502` (AP) | [achados_sd_relay](achados_sd_relay.md) |
+
 ## Índice de evidências
 
 | Evidência | Onde |
 |---|---|
-| Achados por vetor | `docs/achados_ap.md`, `achados_sta.md`, `achados_mqtt.md`, `achados_fakeserver.md`, `achados_fakeserver_relay.md` |
+| Achados por vetor | `docs/achados_ap.md`, `achados_sta.md`, `achados_mqtt.md`, `achados_fakeserver.md`, `achados_fakeserver_relay.md`, `achados_sd_relay.md` |
 | Protocolo (payloads, portas, handshake) | `docs/protocolo_naxclow.md` |
 | Runbooks de execução | `docs/runbook_fakeserver_ap.md`, `runbook_mitm_dns.md` |
 | Remontagem de mídia | `scripts/utils/extract_mitm_video.py`, `extract_mitm_video_udp.py` |

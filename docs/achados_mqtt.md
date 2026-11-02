@@ -7,6 +7,14 @@ O canal de controle MQTT (`Naxclow/P2P/Users/Device/sub/<devicesCode>`) aceita
 **qualquer JSON publicado ali, sem autenticação**. A câmera assina esse tópico
 com QoS 1 e obedece os comandos.
 
+> **Pré-requisito — acesso ao broker (testado 2026-11-02):** o broker **real** do cloud
+> **recusa acesso anônimo** (`39.108.171.214:1883` → `Connection Refused: not authorised`,
+> CONNACK `5`). Ou seja, a injeção de comando **não é remota direta**: o atacante precisa
+> (a) **ser o cloud** (fake server / DNS override → broker próprio, sem auth — foi assim
+> que os comandos abaixo foram provados) ou (b) obter as **credenciais MQTT da câmera**,
+> que vazam em claro na LAN (ver [achados_sta](achados_sta.md)). Os comandos seguem a
+> posição já conquistada por esses vetores — não são um canal remoto autônomo.
+
 ## Comandos confirmados
 
 | Comando | Código | Payload | Efeito |

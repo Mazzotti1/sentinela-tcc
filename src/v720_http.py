@@ -327,18 +327,60 @@ if(window.Hls && Hls.isSupported()){
                         self.__hls_page(_dev)
                 elif _cmd == 'fwd' and _dev is not None:
                     v = 3
+                    extra = {}
                     q = self.path.split('?', 1)[1] if '?' in self.path else ''
                     for p in q.split('&'):
-                        if p.startswith('v='):
+                        if '=' not in p:
+                            continue
+                        k, val = p.split('=', 1)
+                        if k == 'v':
                             try:
-                                v = int(p.split('=', 1)[1])
+                                v = int(val)
+                            except ValueError:
+                                pass
+                        elif k in ('date', 'hours', 'minute'):
+                            try:
+                                extra[k] = int(val)
                             except ValueError:
                                 pass
                     try:
-                        _dev.send_forward(v)
+                        _dev.send_forward(v, extra or None)
                     except Exception as e:
                         self.warn(f'fwd {v} falhou: {e}')
-                    body = f'fwd content.code={v} enviado\n'.encode('utf-8')
+                    body = f'fwd content.code={v} extra={extra} enviado\n'.encode('utf-8')
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/plain')
+                    self.send_header('Content-length', str(len(body)))
+                    self.send_header('Connection', 'close')
+                    self.end_headers()
+                    self.wfile.write(body)
+                elif _cmd == 'sd' and _dev is not None:
+                    params = {}
+                    q = self.path.split('?', 1)[1] if '?' in self.path else ''
+                    for p in q.split('&'):
+                        if '=' in p:
+                            k, val = p.split('=', 1)
+                            params[k] = val
+                    try:
+                        _dev.sd_probe(params.get('date'), params.get('hours'), params.get('minute'))
+                    except Exception as e:
+                        self.warn(f'sd probe falhou: {e}')
+                    body = f'sd probe enviado {params}\n'.encode('utf-8')
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/plain')
+                    self.send_header('Content-length', str(len(body)))
+                    self.send_header('Connection', 'close')
+                    self.end_headers()
+                    self.wfile.write(body)
+                elif _cmd == 'sdsave' and _dev is not None:
+                    outdir = os.environ.get('SD_DUMP_DIR', 'results/sdcard_relay')
+                    try:
+                        os.makedirs(outdir, exist_ok=True)
+                        path = os.path.join(outdir, f'{_dev.id}_{int(datetime.timestamp(datetime.now()))}.avi')
+                        n = _dev.save_avi(path)
+                        body = f'saved {n} bytes -> {path}\n'.encode('utf-8')
+                    except Exception as e:
+                        body = f'save falhou: {e}\n'.encode('utf-8')
                     self.send_response(200)
                     self.send_header('Content-type', 'text/plain')
                     self.send_header('Content-length', str(len(body)))

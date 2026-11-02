@@ -5,6 +5,46 @@
 > conectar rede → abrir frame). O objetivo é **replicar exatamente** cada passo no
 > fake server (`scripts/fakeserver/fakesrv_lab.sh` + `src/v720_sta.py`/`v720_http.py`).
 
+## Framing do protocolo P2P (comum a AP e relay)
+
+O "protocolo" é o **P2P proprietário Naxclow (família A9/V720)** — binário próprio, **não** é ONVIF/RTSP/HTTP. A câmera fala o **mesmo conjunto de comandos** no modo AP (servidor local) e com o cloud/relay; muda só o transporte e o envelope.
+
+**Frame = header de 20 bytes (little-endian) + payload:**
+
+```
+len(4) cmd(2) msg_flag(1) deal_flag(1) forward_id(8) pkg_id(4) | payload
+```
+
+| `cmd` | conteúdo |
+|---|---|
+| `0` | JSON (comando/resposta) |
+| `8` | XML (ex.: catálogo do SD) |
+| `1` | JPEG (vídeo ao vivo) |
+| `7` | AVI (gravação do SD) |
+| `6` / `4` | PCM / G711 (áudio) |
+| `100` | heartbeat |
+| `114` / `115` | direct / live motion |
+
+**Envelope do comando (o `content.code` é o mesmo nos dois transportes):**
+
+| Transporte | Envelope |
+|---|---|
+| AP — câmera em modo config (`192.168.169.1:6123`, TCP) | `{"code":502,"content":{"code":<op>,...}}` (`CODE_AP_COMMAND`) |
+| Cloud/relay — TCP de controle / UDP de dados | `{"code":301,"target":<user>,"content":{"code":<op>,...}}` (`CODE_CMD_FORWARD`) |
+
+**Operações de SD (`content.code`):**
+
+| Op | code | Resposta | Conteúdo |
+|---|---|---|---|
+| Lista de datas | `400` | `401` | `dates: [...]`, `dateNum` |
+| Catálogo do dia | `402` | `403` + XML `cmd=8` | `<video><catalogue hours minBin>` (bitmap de minutos) |
+| Info do segmento | `404` | `405` | `fileSize`, `fileName` |
+| Iniciar stream | `406` | `407` | AVI (`cmd=7`) no canal |
+| Parar stream | `408` | `409` | — |
+
+> **AP validado** (2026-11-01): via envelope `502`, a câmera listou e entregou gravações reais (`achados_ap.md`).
+> **Relay (sem AP) — a testar:** as mesmas ops no envelope `301` pelo canal de relay. Base: `caplive`/`baseinfo` já usam `301+3`/`301+4`. Só fecha com a câmera em **STA** + relay em **IP público** (VPS), porque ela só abre o canal de dados para endpoint público. Harness já no fake: `/dev/<uid>/sd?date=&hours=&minute=` e `/dev/<uid>/sdsave`.
+
 ## Atores e endereços (captura real)
 
 | Ator | IP | MAC | Portas servidas |

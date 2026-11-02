@@ -33,8 +33,9 @@ vetores se distinguem pelo pré-requisito do atacante, não pela falha.
 **1. Hotspot AP (acesso local sem auth).** A câmera, em modo de configuração, abre uma
 rede WiFi **sem senha** e serve o protocolo na LAN dela (`192.168.169.1:6123`) com token
 de autenticação **hardcoded** (`"This is TEST token"`). Conectado na rede, obtém-se o
-stream ao vivo sem login. Evidência: `src/v720_ap.py`, `prot_ap.py` (fixes de firmware);
-`achados_ap.md`.
+stream ao vivo sem login. Além do stream, **lista e baixa as gravações do cartão SD** sem
+login (`-f`/`-d`/`--dump`, codes `400`–`407`). Evidência: `src/v720_ap.py`, `prot_ap.py`
+(fixes de firmware); `achados_ap.md`.
 
 **2. MITM STA (escuta em claro).** Outro device na mesma LAN (ARP spoof com ettercap)
 intercepta todo o tráfego câmera↔cloud. Vazam em claro: **token MQTT**, **SSID** da
@@ -71,6 +72,7 @@ vetor de maior impacto. Evidência: `achados_fakeserver_relay.md`.
 | Sem criptografia (HTTP:80, MQTT:1883, relay TCP/UDP) | tudo em claro no pcap | **I5** |
 | Token/credencial exposto em claro | `token:530012ec16` interceptado | **I1 / I6** |
 | Vazamento de dados sensíveis (`wifiName`, `devicesCode`, versão) | MQTT `Device/Info` em claro | **I6** |
+| Gravações do SD listáveis/baixáveis sem auth | `-f`/`-d`/`--dump` no AP | **I3 / I6** |
 | Takeover remoto de hardware | `reboot` / `format` / `setwifi` / IR via MQTT | **I3** |
 | Espionagem remota de mídia (vídeo + áudio) | stream no relay do atacante, sem app | **I3 / I5** |
 | Sequestro de rede | `code 204` reconecta a câmera noutra rede | **I2** |
@@ -104,7 +106,6 @@ executado**. Ordem do [`proximos_passos.md`](proximos_passos.md).
 | Item | O que falta | Onde roda |
 |---|---|---|
 | Evil twin (cenário 2) | AP clone da rede da vítima; testar twin aberto e handshake WPA2→crack | Kali (dongle AR9271/RT5370) |
-| SD card no AP | `python3 src/a9_naxclow.py -f` (listar) e `-d <data-hora>` (baixar) | Mac (rede da câmera `192.168.169.1:6123`) |
 | OTA / firmware | servir um `ota_url` pelo fake e ver update sem assinatura | VPS (Mac orquestra via `ssh`) |
 | Stream local no AP / MITM+DNS | a câmera não abre o canal em IP local — reproduzir só com relay público | Linux/relay |
 | Comandos MQTT inconclusivos | PTZ `212`, flip `216`, `speedGrade` `201`, `movealert` `205`, `apmode` `208`, `led` `210` | LAN/relay |
@@ -130,8 +131,10 @@ executado**. Ordem do [`proximos_passos.md`](proximos_passos.md).
 A câmera **não autentica o servidor e não criptografa nada**, o que permite (a) **assumir
 o controle** do hardware sem credencial e (b) **espionar** o stream de vídeo/áudio —
 tanto remotamente (DNS/relay) quanto de dentro da LAN (MITM/DNS) ou por proximidade (AP
-aberto). O ponto de virada do trabalho foi o vetor do **relay em IP público**: provou a
+aberto) — e (c) **extrair as gravações** do cartão SD por proximidade (AP aberto).
+
+O ponto de virada do trabalho foi o vetor do **relay em IP público**: provou a
 espionagem remota de ponta a ponta, que era o único passo em aberto nos cenários
 anteriores. Os itens da seção [Pendente](#pendente--mapeado-e-não-testado) ficam para a
-próxima etapa (evil twin, SD card, OTA e a varredura de comandos MQTT) e estão fora do
+próxima etapa (evil twin, OTA e a varredura de comandos MQTT) e estão fora do
 recorte da apresentação parcial.

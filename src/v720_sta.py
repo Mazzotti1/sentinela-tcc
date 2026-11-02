@@ -1,6 +1,7 @@
 from __future__ import annotations
 import random
 import threading
+import time
 from datetime import datetime
 from queue import Queue
 from log import log
@@ -12,6 +13,7 @@ from netsrv_udp import netsrv_udp
 import cmd_udp
 from prot_udp import prot_udp
 from prot_json_udp import prot_json_udp
+from prot_xml_udp import prot_xml_udp
 from v720_http import v720_http
 
 class v720_sta(log):
@@ -104,6 +106,8 @@ class v720_sta(log):
             f'{cmd_udp.P2P_UDP_CMD_G711}': self.__on_audio_rcv_hnd,
             f'{cmd_udp.P2P_UDP_CMD_PCM}': self.__on_audio_rcv_hnd,
             f'{cmd_udp.P2P_UDP_CMD_JPEG}': self.__on_mjpg_rcv_hnd,
+            f'{cmd_udp.P2P_UDP_CMD_AVI}': self.__on_avi_rcv_hnd,
+            f'{cmd_udp.P2P_UDP_CMD_XML}': self.__on_xml_rcv_hnd,
         }
 
         self._json_hnd_lst = {
@@ -112,12 +116,22 @@ class v720_sta(log):
             f'{cmd_udp.CODE_C2S_UDP_REQ}': self.__udp_probe_hnd,
             f'{cmd_udp.CODE_D2C_PROBE_RSP}': self.__data_ch_probe_hnd,
             f'{cmd_udp.CODE_CMD_FORWARD}': self.__fwd_resp_hnd,
+            f'{cmd_udp.CODE_SDCARD_RSP_DATE_LIST}': self.__sd_rsp_hnd,
+            f'{cmd_udp.CODE_SDCARD_RSP_CONFIG}': self.__sd_rsp_hnd,
+            f'{cmd_udp.CODE_SDCARD_RSP_MEDIA_INFO}': self.__sd_rsp_hnd,
+            f'{cmd_udp.CODE_SDCARD_RSP_START_STREAM}': self.__sd_rsp_hnd,
+            f'{cmd_udp.CODE_SDCARD_RSP_MEDIA_STREAM_END}': self.__sd_rsp_hnd,
         }
 
         self._fwd_hnd_lst = {
             f'{cmd_udp.CODE_FORWARD_DEV_BASE_INFO}': self.__baseinfo_hnd,
             f'{cmd_udp.CODE_FORWARD_OPEN_A_OPEN_V}': self.__on_open_video,
             f'{cmd_udp.CODE_FORWARD_CLOSE_A_CLOSE_V}': self.__on_close_video,
+            f'{cmd_udp.CODE_SDCARD_RSP_DATE_LIST}': self.__sd_rsp_hnd,
+            f'{cmd_udp.CODE_SDCARD_RSP_CONFIG}': self.__sd_rsp_hnd,
+            f'{cmd_udp.CODE_SDCARD_RSP_MEDIA_INFO}': self.__sd_rsp_hnd,
+            f'{cmd_udp.CODE_SDCARD_RSP_START_STREAM}': self.__sd_rsp_hnd,
+            f'{cmd_udp.CODE_SDCARD_RSP_MEDIA_STREAM_END}': self.__sd_rsp_hnd,
         }
 
         self._vframe = Queue()
@@ -144,6 +158,10 @@ class v720_sta(log):
         self._retrans_tmr = None
         self._udp_mtx = threading.Lock()
         self._lstnr_cnt = 0
+        self._sd_mtx = threading.Lock()
+        self._avi_buf = bytearray()
+        self._sd_expected = 0
+        self._sd_state = {}
         self.set_tcp_conn(tcp_conn)
         if udp_conn is not None:
             self.set_udp_conn(udp_conn)
@@ -315,7 +333,7 @@ class v720_sta(log):
             'code': cmd_udp.CODE_S2D_NAT_REQ,
             'cliTarget': self.CLI_TG,
             'cliToken': self.CLI_TKN,
-            'cliIp': _env.get('FAKE_SRV_CLIIP', '191.187.210.110'),
+            'cliIp': _env.get('FAKE_SRV_CLIIP', self._tcp._host),
             'cliPort': int(_env.get('FAKE_SRV_CLIPORT', '47006')),
             'cliNatIp': _env.get('FAKE_SRV_NATIP', '192.168.0.21'),
             'cliNatPort': int(_env.get('FAKE_SRV_NATPORT', '53929')),
@@ -385,12 +403,82 @@ class v720_sta(log):
         self.info(f'Found device, starting video-streaming')
         self.__start_live()
 
-    def send_forward(self, code: int) -> None:
-        """Envia um CODE_FORWARD (301) com o content.code pedido. Usado pra
-        experimentar qual comando solta o video (3=abre A+V, 2=so V, 218=SD)."""
-        resp = self.__prep_fwd({'code': code})
-        self.info(f'Send forward content.code={code}')
+    def send_forward(self, code: int, extra: dict = None) -> None:
+        """Envia um CODE_FORWARD (301) com content.code (+ date/hours/minute)."""
+        content = {'code': code}
+        if extra:
+            content.update(extra)
+        resp = self.__prep_fwd(content)
+        self.info(f'Send forward content={content}')
         self._tcp.send(resp.req())
+
+    def sd_probe(self, date=None, hours=None, minute=None) -> None:
+        """Dispara a sequencia de SD pelo canal de relay (hipotese sem modo AP)."""
+        def _run():
+            try:
+                self.send_forward(cmd_udp.CODE_SDCARD_REQ_DATE_LIST)
+                time.sleep(1.0)
+                if date is not None:
+                    self.send_forward(cmd_udp.CODE_SDCARD_REQ_CONFIG, {'date': int(date)})
+                    time.sleep(1.5)
+                if date is not None and hours is not None and minute is not None:
+                    self.send_forward(cmd_udp.CODE_SDCARD_REQ_MEDIA_INFO,
+                                      {'date': int(date), 'hours': int(hours), 'minute': int(minute)})
+                    time.sleep(1.0)
+                    self.send_forward(cmd_udp.CODE_SDCARD_REQ_START_STREAM,
+                                      {'date': int(date), 'hours': int(hours), 'minute': int(minute)})
+            except Exception as e:
+                self.warn(f'sd_probe falhou: {e}')
+        t = threading.Thread(target=_run, name=f'sd-probe@{self.id}')
+        t.daemon = True
+        t.start()
+
+    def save_avi(self, path: str) -> int:
+        with self._sd_mtx:
+            data = bytes(self._avi_buf)
+        if self._sd_expected and len(data) > self._sd_expected:
+            data = data[:self._sd_expected]
+        with open(path, 'wb') as f:
+            f.write(data)
+        self.info(f'Saved AVI {len(data)} bytes -> {path}')
+        return len(data)
+
+    def __sd_rsp_hnd(self, conn, pkg: prot_json_udp):
+        self.info(f'SD response: {pkg.json}')
+        j = pkg.json or {}
+        c = j.get('content') if isinstance(j.get('content'), dict) else j
+        key = j.get('code')
+        if key is None and isinstance(c, dict):
+            key = c.get('code')
+        fs = c.get('fileSize') if isinstance(c, dict) else None
+        if fs is None:
+            fs = j.get('fileSize')
+        try:
+            if fs is not None and int(fs) > 1:
+                self._sd_expected = int(fs)
+        except (TypeError, ValueError):
+            pass
+        with self._sd_mtx:
+            self._sd_state[key] = j
+
+    def __on_xml_rcv_hnd(self, conn, payload: bytes):
+        pkg = prot_xml_udp.resp(payload)
+        self.info(f'SD catalog XML: {pkg.xml if pkg is not None else payload[:160]}')
+
+    def __on_avi_rcv_hnd(self, conn, payload: bytes):
+        pkg = prot_udp.resp(payload)
+        with self._sd_mtx:
+            self._avi_buf.extend(pkg.payload)
+            total = len(self._avi_buf)
+            done = self._sd_expected and total >= self._sd_expected
+        if pkg.msg_flag in (cmd_udp.PROTOCOL_MSG_FLAG_HEAD,
+                            cmd_udp.PROTOCOL_MSG_FLAG_END,
+                            cmd_udp.PROTOCOL_MSG_FLAG_FINISH):
+            self.info(f'AVI chunk flag={pkg.msg_flag} len={len(pkg.payload)} total={total}')
+        else:
+            self.dbg(f'AVI body len={len(pkg.payload)} total={total}')
+        if done:
+            self.info(f'AVI completo: {total} bytes (esperado {self._sd_expected})')
 
     def __start_live(self):
         resp = self.__prep_fwd({

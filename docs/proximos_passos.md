@@ -25,15 +25,16 @@ Doc de protocolo (payloads, portas, handshake): [`protocolo_naxclow.md`](protoco
 - ✅ **Stream em AP** — capturado (`achados_ap.md`).
 - ✅ **RE do APK** — relay antigo + WebRTC do app 3.3.0.
 - ✅ **Relay falso em IP público (VPS)** — a câmera registra num relay do atacante e entrega **vídeo + áudio**, sem app e sem auth (`achados_fakeserver_relay.md`).
+- ✅ **Gravações do SD (modo AP)** — listagem, download e `--dump` de todas as gravações sem auth (`achados_ap.md`).
 - ✅ **Consolidação** — `docs/achados_finais.md` (OWASP/CVSS + provado vs pendente).
 
 ## Pendente (ordem) — e onde rodar
 
-1. **Evil twin (cenário 2)** — AP clone da rede da vítima, sem a senha do WiFi; a câmera/telefone associa sozinho. **Só roda no Linux/Kali** (hostapd + modo monitor/injeção; macOS não faz). Precisa dongle USB **AR9271** ou **RT5370**.
-2. **Modo AP: SD card** — `python3 src/a9_naxclow.py -f` (listar datas/horas) e `-d <data-hora>` (baixar gravação). **Roda no Mac** (Python puro; só entrar na rede da câmera `192.168.169.1:6123`).
+1. **SD via relay (sem modo AP)** — extrair gravações pelo canal de relay (`301+400/402/404/406`) com a câmera em **STA** + relay em **IP público** (VPS). Harness pronto no fake: `/dev/<uid>/sd?date=&hours=&minute=` + `/dev/<uid>/sdsave`. Hipótese: o firmware aceita as ops de SD no envelope de forward. Detalhe em [`protocolo_naxclow.md`](protocolo_naxclow.md).
+2. **Evil twin (cenário 2)** — AP clone da rede da vítima, sem a senha do WiFi; a câmera/telefone associa sozinho. **Só roda no Linux/Kali** (hostapd + modo monitor/injeção; macOS não faz). Precisa dongle USB **AR9271** ou **RT5370**.
 3. **OTA / firmware** — servir um `ota_url` pelo fake (`getDevInfo`/`getA9ConfCheck`) e ver se a câmera aceita update sem assinatura. O fake roda na VPS (Mac pode orquestrar via `ssh`; se precisar de DNS/DNAT local, exige Linux).
 
-**Resumo de plataforma:** só o **evil twin** prende na Kali. SD card e OTA dá pra tocar no Mac.
+**Resumo de plataforma:** só o **evil twin** prende na Kali. OTA dá pra tocar orquestrando pela VPS/Mac.
 
 ## Armadilhas conhecidas (não repetir)
 

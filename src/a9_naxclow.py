@@ -2,6 +2,7 @@
 
 from netcl_tcp import netcl_tcp
 import time
+import os
 import argparse
 from datetime import datetime
 from tqdm.auto import tqdm
@@ -19,14 +20,18 @@ PORT = 6123
 
 
 def print_filelist(cam):
-    for date in cam.sdcard_datelist():
+    dates = cam.sdcard_datelist()
+    if not dates:
+        print('Nenhuma data/listagem recebida do SD card')
+        return
+    for date in dates:
         time.sleep(0.5)
         print(f'Files @ {date}:')
         for file in cam.filename_list(date):
             finfo = cam.avi_file_info(date, file[0], file[1])
             if finfo is not None:
                 print(
-                    f'\t\t-{file[0]:02d}:{file[1]:02d}: Filename: {finfo["fileName"]}, Size: {finfo["fileSize"]}')
+                    f'\t\t-{file[0]:02d}:{file[1]:02d}: Filename: {finfo.get("fileName")}, Size: {finfo.get("fileSize")}')
             else:
                 print(
                     f'\t\t-{file[0]:02d}:{file[1]:02d}: Could not get file info')
@@ -39,12 +44,50 @@ def download(cam, file, date, hour, min, total_sz=0):
     def _on_rcv(id, sz):
         _pb.update(sz)
 
-    ret = cam.get_file(date, hour, min, _on_rcv)
-    if ret[1] is not None:
-        with open(file, 'wb') as avi:
-            avi.write(ret[1])
-        return(len(ret[1]), ret[0])
-    return(0, ret[0])
+    ret = cam.get_file(date, hour, min, _on_rcv, expected_sz=total_sz or None)
+    if ret is None or ret[1] is None:
+        msg = ret[0] if ret is not None else None
+        print(f'Download failed. Response: {msg}')
+        return (0, msg)
+    data = bytes(ret[1])
+    if total_sz and len(data) > total_sz:
+        data = data[:total_sz]
+    with open(file, 'wb') as avi:
+        avi.write(data)
+    return(len(data), ret[0])
+
+
+def dump_all(cam, outdir):
+    dates = cam.sdcard_datelist()
+    if not dates:
+        print('Nenhuma data/listagem recebida do SD card')
+        return
+    os.makedirs(outdir, exist_ok=True)
+    n_ok = 0
+    n_empty = 0
+    n_fail = 0
+    total = 0
+    for date in dates:
+        entries = cam.filename_list(date) or ()
+        print(f'[{date}] {len(entries)} segmento(s)')
+        for hour, minute in entries:
+            info = cam.avi_file_info(date, hour, minute) or {}
+            size = info.get('fileSize')
+            name = info.get('fileName') or f'{date}{hour:02d}{minute:02d}'
+            if size is None or size <= 1:
+                print(f'  {hour:02d}:{minute:02d} vazio (fileSize={size}) - pulando')
+                n_empty += 1
+                continue
+            dest = os.path.join(outdir, f'{name}.avi')
+            print(f'  {hour:02d}:{minute:02d} -> {dest} ({size} bytes)')
+            got, _ = download(cam, dest, date, hour, minute, size)
+            if got > 0:
+                n_ok += 1
+                total += got
+            else:
+                n_fail += 1
+            time.sleep(0.3)
+    print(f'Dump concluido: {n_ok} ok, {n_fail} falha(s), {n_empty} vazio(s), {total} bytes em {outdir}')
 
 
 def parse_dt(s: str):
@@ -71,6 +114,7 @@ if __name__ == '__main__':
     arg_gr = parser.add_mutually_exclusive_group(required=True)
     arg_gr.add_argument('-d', '--download', type=str, help='Download file with provided datetime. Format: [date]-[hour]-[miute], example: 20230131-22-29')
     arg_gr.add_argument('-f', '--filelist', action="store_true", help='List available files (recorded date\'s and time\'s)')
+    arg_gr.add_argument('--dump', action="store_true", help='Download ALL recorded video segments from the SD card into a folder (-o or results/sdcard_dump)')
     arg_gr.add_argument('-l', '--live', action="store_true", help='Show live stream')
     arg_gr.add_argument('-s', '--server', action='store_true', help='Start a fake-server', default=False)
     arg_gr.add_argument('--set-wifi', nargs=2, help='Try to connect to specified AP (--set-wifi AP PWD)')
@@ -102,23 +146,31 @@ Snapshot: http://127.0.0.1:{args.proxy_port}/dev/[CAM-ID]/snapshot\033[0m
             cam = v720_ap(sock)
             cam.init_live_motion()
 
-            if args.filelist and cam.sdcard_status():
+            sd_status = cam.sdcard_status()
+            if sd_status is None:
+                print('AVISO: status do SD desconhecido (resposta de firmware diferente) - seguindo mesmo assim')
+            elif sd_status is False:
+                print('Camera reporta: sem SD card')
+
+            if args.filelist:
                 print_filelist(cam)
-            elif args.download and cam.sdcard_status():
+            elif args.dump:
+                dump_all(cam, args.output or 'results/sdcard_dump')
+            elif args.download:
                 dt = parse_dt(args.download)
                 file_info = cam.avi_file_info(dt[0], dt[1], dt[2])
-                if file_info is None or file_info['fileSize'] == -1:
+                if file_info is None or file_info.get('fileSize', -1) == -1:
                     print(f'File {dt[0]}-{dt[1]}-{dt[2]} not found')
                     exit(1)
 
                 output = args.output
                 if output is None:
-                    output = f"{file_info['fileName']}.avi"
+                    output = f"{file_info.get('fileName', f'{dt[0]}-{dt[1]}-{dt[2]}')}.avi"
 
                 print('Found file @', dt[0], dt[1], dt[2], ':',
-                      file_info['fileName'], ' with size:', file_info['fileSize'])
-                download(cam, args.output, dt[0],
-                         dt[1], dt[2], file_info['fileSize'])
+                      file_info.get('fileName'), ' with size:', file_info.get('fileSize'))
+                download(cam, output, dt[0],
+                         dt[1], dt[2], file_info.get('fileSize', 0))
             elif args.live:
                 cam.ir_led(args.irled)
                 cam.flip(args.flip)

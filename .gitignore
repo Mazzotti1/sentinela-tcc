@@ -36,3 +36,9 @@ docs/mitm_dns_out/
 *.jsonl
 
 apk_v720
+
+# Apresentação / design system / PDF da pesquisa
+presentation/
+design-system/
+*.pdf
+*.docx

@@ -1,5 +1,6 @@
 from socket import socket, timeout
 from datetime import datetime
+import time
 
 import cmd_udp
 from netcl import netcl
@@ -21,8 +22,10 @@ class v720_ap:
     def _req(self, data) -> bytes:
         return self._socket.request(data)
 
-    def _rcv_video_frame(self, on_pkg_recv: callable) -> None:
+    def _rcv_video_frame(self, on_pkg_recv: callable, should_stop: callable = None) -> None:
         while True:
+            if should_stop is not None and should_stop():
+                break
             try:
                 _bf = self._rcv()
                 if _bf is not None and len(_bf) > 0:
@@ -37,15 +40,45 @@ class v720_ap:
             except IOError:
                 continue
 
-    def _json_req(self, prot: dict, deal_flag = 0, fwd_id = prot_json_udp.DEFAULT_FORWARD_ID) -> prot_json_udp:
-        r = prot_json_udp.resp(self._req(prot_json_udp(json=prot, _deal_flag = deal_flag, _forward_id = fwd_id).req()))
-        if r is not None:
+    def _json_req(self, prot: dict, deal_flag = 0, fwd_id = prot_json_udp.DEFAULT_FORWARD_ID, expect_code: int = None, _max_drain: int = 256) -> prot_json_udp:
+        raw = self._req(prot_json_udp(json=prot, _deal_flag = deal_flag, _forward_id = fwd_id).req())
+        r = prot_json_udp.resp(raw)
+
+        def matches(resp):
+            if resp is None:
+                return False
+            if expect_code is None:
+                return True
+            return resp.json.get('code') == expect_code
+
+        drained = 0
+        while not matches(r) and drained < _max_drain:
+            try:
+                raw = self._rcv()
+            except IOError:
+                drained += 1
+                continue
+            if raw is None or len(raw) == 0:
+                break
+            cand = prot_json_udp.resp(raw)
+            if cand is not None:
+                if matches(cand):
+                    r = cand
+                    break
+                drained += 1
+                continue
+            pkg = prot_udp.resp(raw)
+            if pkg is not None and pkg.cmd not in self._MEDIA_CMDS:
+                break
+            drained += 1
+
+        if matches(r):
             if 'devId' in r.json:
                 self.dev_id = r.json['devId']
             if 'forwardId' in r.json:
                 self.forward_id = r.json['forwardId']
-
-        return r
+            return r
+        return None
 
     _MEDIA_CMDS = (
         cmd_udp.P2P_UDP_CMD_JPEG,
@@ -118,7 +151,7 @@ class v720_ap:
             'target': prot_json_udp.DEFAULT_DEV_TARGET,
             'token': prot_json_udp.DEFAULT_DEVICE_TOKEN,
             'unixTimer': int(datetime.timestamp(datetime.now()))
-        })
+        }, expect_code=cmd_udp.CODE_AP_CONNECT)
 
     def baseinfo(self) -> prot_ap:
         return self._ap_req({
@@ -147,7 +180,10 @@ class v720_ap:
             'code': cmd_udp.CODE_FORWARD_DEV_SDCARD_STATUS,
             'devTarget': prot_json_udp.DEFAULT_DEV_TARGET
         })
-        return r.content['sdDevStatus'] > 0 if r is not None else None
+        self._socket.dbg(f'SD status content: {r.content if r is not None else None}')
+        if r is None or not isinstance(r.content, dict) or 'sdDevStatus' not in r.content:
+            return None
+        return r.content['sdDevStatus'] > 0
 
     def wifi_scan(self):
         return self._ap_req({
@@ -188,10 +224,11 @@ class v720_ap:
         r = self._json_req({
             'code': cmd_udp.CODE_SDCARD_REQ_DATE_LIST,
             'devTarget': prot_json_udp.DEFAULT_DEV_TARGET
-        })
+        }, expect_code=cmd_udp.CODE_SDCARD_RSP_DATE_LIST)
 
         if r is not None and 'dates' in r.json:
             return r.json['dates']
+        self._socket.dbg(f'SD datelist resp: {r.json if r is not None else None}')
         return None
 
     @staticmethod
@@ -213,10 +250,23 @@ class v720_ap:
             'code': cmd_udp.CODE_SDCARD_REQ_CONFIG,
             'devTarget': prot_json_udp.DEFAULT_DEV_TARGET,
             'date': date
-        })
+        }, expect_code=cmd_udp.CODE_SDCARD_RSP_CONFIG)
 
         if r is not None and 'status' in r.json and r.json['status'] == 200:
-            xml = prot_xml_udp.resp(self._socket.recv())
+            xml = None
+            for _ in range(64):
+                try:
+                    raw = self._rcv()
+                except IOError:
+                    continue
+                if raw is None or len(raw) == 0:
+                    break
+                pkg = prot_udp.resp(raw)
+                if pkg is not None and pkg.cmd == cmd_udp.P2P_UDP_CMD_XML:
+                    xml = prot_xml_udp.resp(raw)
+                    break
+                if pkg is not None and pkg.cmd not in self._MEDIA_CMDS:
+                    break
 
             if xml is not None and "video" in xml.xml and "catalogue" in xml.xml['video']:
                 cat = xml.xml['video']['catalogue']
@@ -241,27 +291,35 @@ class v720_ap:
                             'date': date,
                             'hours': hours,
                             'minute': minute
-                            })
+                            }, expect_code=cmd_udp.CODE_SDCARD_RSP_MEDIA_INFO)
         return r.json if r is not None else None
 
-    def get_file(self, date: int, hours: int, minute: int, on_pkg_recv: callable = None) -> prot_json_udp:
+    def get_file(self, date: int, hours: int, minute: int, on_pkg_recv: callable = None, expected_sz: int = None) -> prot_json_udp:
         r = self._json_req({
             'code': cmd_udp.CODE_SDCARD_REQ_START_STREAM,
             'devTarget': prot_json_udp.DEFAULT_DEV_TARGET,
             'date': date,
             'hours': hours,
             'minute': minute,
-        })
+        }, expect_code=cmd_udp.CODE_SDCARD_RSP_START_STREAM)
         if r is not None and 'status' in r.json and r.json['status'] == 200:
             ret = bytearray()
+            start = time.time()
 
             def on_rcv(pkg: prot_udp):
+                if pkg.cmd in (cmd_udp.P2P_UDP_CMD_JSON, cmd_udp.P2P_UDP_CMD_XML):
+                    return
                 if on_pkg_recv is not None and callable(on_pkg_recv):
                     on_pkg_recv(pkg._pkg_id, pkg._len)
 
                 ret.extend(pkg.payload)
 
-            self._rcv_video_frame(on_rcv)
+            def should_stop():
+                if expected_sz is not None and len(ret) >= expected_sz:
+                    return True
+                return (time.time() - start) > 120
+
+            self._rcv_video_frame(on_rcv, should_stop if expected_sz is not None else None)
             return (r.json, ret)
 
         return (r.json, None) if r is not None else None

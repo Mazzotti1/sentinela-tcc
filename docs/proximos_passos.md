@@ -28,13 +28,13 @@ Doc de protocolo (payloads, portas, handshake): [`protocolo_naxclow.md`](protoco
 - ✅ **Gravações do SD (modo AP)** — listagem, download e `--dump` de todas as gravações sem auth (`achados_ap.md`).
 - ✅ **Consolidação** — `docs/achados_finais.md` (OWASP/CVSS + provado vs pendente).
 - ❌ **SD pelo relay (sem modo AP)** — testado (2026-11-02): o firmware **não** responde às ops de SD (`400/402/404/406`) no envelope `301`; só no `502` (AP). Detalhe em [`achados_sd_relay.md`](achados_sd_relay.md).
+- ✅ **Modo combinado (controle + stream na VPS)** — **RESOLVIDO** (2026-11-03): a captura do `240` real (hotspot no Kali + `setwifi`) revelou os campos que o fake omitia — **`tcpPort` e `uid`** (causavam `errStatus 2`). Corrigido em `src/v720_http.py`; agora a câmera aceita o `240`, **abre o relay**, e o atacante recebe **vídeo real (640x480, JPEG)** + controle MQTT (`ledei`/`setwifi`). Ver [`runbook_mitm_dns.md`](runbook_mitm_dns.md).
 
 ## Pendente (ordem) — e onde rodar
 
-1. **Controle + stream numa sessão só (broker + HTTP + relay na VPS)** — hoje controle (DNS/MQTT) e stream (relay público) foram provados **separados**. Juntar: subir broker + fake na **VPS** e desviar `*.naxclow.com`/`1883`/relay pra lá (DNS spoof e/ou DNAT → VPS). Habilita o takeover MQTT **e** o stream juntos — e o `setwifi` como passo de sequestro de rede (persistência). Detalhe em [`runbook_mitm_dns.md`](runbook_mitm_dns.md).
-2. **Evil twin (cenário 2)** — AP clone da rede da vítima, sem a senha do WiFi; a câmera/telefone associa sozinho. **Só roda no Linux/Kali** (hostapd + modo monitor/injeção; macOS não faz). Precisa dongle USB **AR9271** ou **RT5370**.
-3. **OTA / firmware** — servir um `ota_url` pelo fake (`getDevInfo`/`getA9ConfCheck`) e ver se a câmera aceita update sem assinatura. O fake roda na VPS (Mac pode orquestrar via `ssh`; se precisar de DNS/DNAT local, exige Linux).
-4. **SD pelo app/cloud (extra, baixa prioridade)** — o caminho do relay deu negativo ([`achados_sd_relay.md`](achados_sd_relay.md)). Resta capturar o fluxo real do app na tela de gravações (MITM passivo) e/ou explorar `udpPlayBack` / `cloudStorage` (`249`).
+1. **Evil twin (cenário 2)** — AP clone da rede da vítima, sem a senha do WiFi; a câmera/telefone associa sozinho. **Só roda no Linux/Kali** (hostapd + modo monitor/injeção; macOS não faz). Precisa dongle USB **AR9271** ou **RT5370**.
+2. **OTA / firmware** — servir um `ota_url` pelo fake (`getDevInfo`/`getA9ConfCheck`) e ver se a câmera aceita update sem assinatura. O fake roda na VPS (Mac pode orquestrar via `ssh`; se precisar de DNS/DNAT local, exige Linux).
+3. **SD pelo app/cloud (extra, baixa prioridade)** — o caminho do relay deu negativo ([`achados_sd_relay.md`](achados_sd_relay.md)). Resta capturar o fluxo real do app na tela de gravações (MITM passivo) e/ou explorar `udpPlayBack` / `cloudStorage` (`249`).
 
 **Resumo de plataforma:** o **evil twin** e o **modo combinado** (DNS/DNAT local) prendem na Kali (Linux); o **OTA** dá pra tocar orquestrando pela VPS/Mac.
 

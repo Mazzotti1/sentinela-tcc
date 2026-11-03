@@ -166,8 +166,8 @@ class v720_http(log, SimpleHTTPRequestHandler):
 
         _pub({"code": 216, "ntpTimer": int(datetime.timestamp(datetime.now())), "timeZone": timezone})
         _pub({"code": 249, "cloudStorage": 0})
-        _pub({"code": 240, "domain": "v720.naxclow.com", "host": host,
-              "pwd": "ef830de3", "connectId": connect_id, "userId": user_id})
+        _pub({"code": 240, "tcpPort": port, "uid": uid, "domain": "v720.naxclow.com",
+              "host": host, "pwd": "ef830de3", "connectId": connect_id, "userId": user_id})
 
     def __audio_hnd(self, dev):
         q = Queue(v720_http._FRAME_Q_SIZE)

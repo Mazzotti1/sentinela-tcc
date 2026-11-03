@@ -87,8 +87,8 @@ A câmera responde e há troca HTTP.
 ```json
 1) {"code":216,"ntpTimer":<unix>,"timeZone":-3}          // config NTP
 2) {"code":249,"cloudStorage":0}                        // config storage
-3) {"code":240,"domain":"v720.naxclow.com",
-     "host":"<ip>","pwd":"ef830de3",
+3) {"code":240,"tcpPort":<porta>,"uid":"<DEV>","domain":"v720.naxclow.com",
+     "host":"<relay>","pwd":"ef830de3",
      "connectId":"<hex>","userId":"<user>"}              // abrir canal de dados
 ```
 

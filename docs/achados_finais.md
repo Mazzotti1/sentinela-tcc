@@ -27,6 +27,7 @@ vetores se distinguem pelo pré-requisito do atacante, não pela falha.
 | Fake server via DNS | controla DNS/rota | desviar `*.naxclow.com` | takeover remoto (controle total) | [achados_fakeserver](achados_fakeserver.md) |
 | MITM STA + DNS spoof | mesma LAN, gateway alheio | ARP poison na LAN | vira o cloud a partir da LAN | [runbook_mitm_dns](runbook_mitm_dns.md) |
 | Relay público (VPS) | redireciona o relay | VPS com IP público | **vídeo + áudio** no servidor do atacante | [achados_fakeserver_relay](achados_fakeserver_relay.md) |
+| Evil twin (deauth + clone) | AP clone da rede da vítima, no alcance | proximidade + deauth | câmera migra sozinha pro AP do atacante → controle (LED/`setwifi`) | [achados_evil_twin](achados_evil_twin.md) |
 
 ## Vetores provados
 
@@ -79,6 +80,7 @@ vetor de maior impacto. Evidência: `achados_fakeserver_relay.md`.
 | `wifiscan` vaza SSIDs vizinhas | `scanWifiBase64` no MQTT | **I6** |
 | `ledei off` esconde atividade sem parar gravação | LED apagado, gravação mantida | **I3** |
 | WiFi AP aberto sem senha | rede `Nax_XXXXXX` sem chave | **I2** |
+| Câmera associa a clone do AP da vítima | `Station 5c:f1:50:04:af:8a` no clone; `wifiName` inalterado | **I2** |
 | Token de autenticação hardcoded | `"This is TEST token"` no código | **I1** |
 | MITM na LAN não detectado | ARP spoof sem alerta da câmera | **I2 / I5** |
 | Registro P2P sem credencial | `code 100` aceito sem token | **I1 / I3** |

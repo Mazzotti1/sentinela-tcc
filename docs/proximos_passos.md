@@ -29,12 +29,13 @@ Doc de protocolo (payloads, portas, handshake): [`protocolo_naxclow.md`](protoco
 - ✅ **Consolidação** — `docs/achados_finais.md` (OWASP/CVSS + provado vs pendente).
 - ❌ **SD pelo relay (sem modo AP)** — testado (2026-11-02): o firmware **não** responde às ops de SD (`400/402/404/406`) no envelope `301`; só no `502` (AP). Detalhe em [`achados_sd_relay.md`](achados_sd_relay.md).
 - ✅ **Modo combinado (controle + stream na VPS)** — **RESOLVIDO** (2026-11-03): a captura do `240` real (hotspot no Kali + `setwifi`) revelou os campos que o fake omitia — **`tcpPort` e `uid`** (causavam `errStatus 2`). Corrigido em `src/v720_http.py`; agora a câmera aceita o `240`, **abre o relay**, e o atacante recebe **vídeo real (640x480, JPEG)** + controle MQTT (`ledei`/`setwifi`). Ver [`runbook_mitm_dns.md`](runbook_mitm_dns.md).
+- ✅ **Evil twin (deauth + clone)** — **RESOLVIDO** (2026-11-04): clone do AP (mesmo SSID/senha) + **deauth** fez a câmera **migrar sozinha** pro AP do atacante; ela pegou IP/DNS dele, conectou no broker e obedeceu os comandos (`ledei`). Detalhe em [`achados_evil_twin.md`](achados_evil_twin.md).
+- ✅ **Vídeo via evil twin (fake na VPS + NAT restrito)** — validado (2026-11-04): mantendo o fake local pro controle/DNS e anunciando o relay na **VPS**, a câmera abriu o relay lá e o `/live` rendeu **vídeo (JPEG 640×480)**. Ver [`achados_evil_twin.md`](achados_evil_twin.md).
 
 ## Pendente (ordem) — e onde rodar
 
-1. **Evil twin (cenário 2)** — AP clone da rede da vítima, sem a senha do WiFi; a câmera/telefone associa sozinho. **Só roda no Linux/Kali** (hostapd + modo monitor/injeção; macOS não faz). Precisa dongle USB **AR9271** ou **RT5370**.
-2. **OTA / firmware** — servir um `ota_url` pelo fake (`getDevInfo`/`getA9ConfCheck`) e ver se a câmera aceita update sem assinatura. O fake roda na VPS (Mac pode orquestrar via `ssh`; se precisar de DNS/DNAT local, exige Linux).
-3. **SD pelo app/cloud (extra, baixa prioridade)** — o caminho do relay deu negativo ([`achados_sd_relay.md`](achados_sd_relay.md)). Resta capturar o fluxo real do app na tela de gravações (MITM passivo) e/ou explorar `udpPlayBack` / `cloudStorage` (`249`).
+1. **OTA / firmware** — servir um `ota_url` pelo fake (`getDevInfo`/`getA9ConfCheck`) e ver se a câmera aceita update sem assinatura. O fake roda na VPS (Mac pode orquestrar via `ssh`; se precisar de DNS/DNAT local, exige Linux).
+2. **SD pelo app/cloud (extra, baixa prioridade)** — o caminho do relay deu negativo ([`achados_sd_relay.md`](achados_sd_relay.md)). Resta capturar o fluxo real do app na tela de gravações (MITM passivo) e/ou explorar `udpPlayBack` / `cloudStorage` (`249`).
 
 **Resumo de plataforma:** o **evil twin** e o **modo combinado** (DNS/DNAT local) prendem na Kali (Linux); o **OTA** dá pra tocar orquestrando pela VPS/Mac.
 

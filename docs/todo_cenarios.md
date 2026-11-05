@@ -1,11 +1,12 @@
 # Cenários de ataque — a fazer depois
 
-Backlog dos vetores de fake server. **Concluídos:** AP isolado, MITM STA + DNS spoof e relay público. **Pendente:** evil twin.
+Backlog dos vetores de fake server. **Concluídos:** AP isolado, MITM STA + DNS spoof, relay público e **evil twin** (deauth + clone). **Pendente:** OTA/firmware.
 
 ## 1. AP isolado (lab controlado) — Concluido
 Monto minha própria rede, ponho a câmera nela via app, provo que ela aceita servidor falso. Mais simples, prova a falha-raiz. Menos "atacante remoto".
 
-## 2. Evil twin (atacante sem senha) — DEPOIS
+## 2. Evil twin (atacante sem senha) — Concluido
+**Resultou (2026-11-04):** o twin sozinho não convence — a câmera mantém o AP real. Com **deauth** (expulsar do AP real) ela migra pro clone; aí pegou IP/DNS do atacante, conectou no broker e obedeceu comandos; com fake em IP público (VPS) veio **vídeo** (~170 frames JPEG 640×480). Detalhe: [`achados_evil_twin.md`](achados_evil_twin.md).
 Crio AP com mesmo SSID da rede real da câmera, sinal mais forte, ela migra sozinha. Prova takeover remoto real sem saber a senha. Mais complexo no macOS.
 Ressalva técnica: se a rede real for WPA2, a câmera provavelmente não migra pra twin aberto — testar (a) twin aberto (documenta se migra ou não) e (b) captura do handshake WPA + crack offline, aí o twin com SSID+senha iguais funciona.
 

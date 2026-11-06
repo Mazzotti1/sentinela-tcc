@@ -14,6 +14,11 @@ controlado — câmera e rede próprios. Atacante = Kali com **dois rádios**:
 > **obedeceu** os comandos (`ledei` → `"ledEI"` no `Info`). A internet do atacante ficou
 > estável durante tudo (ver a pegadinha do BSSID abaixo).
 
+> **Não é "sem a senha do Wi-Fi".** O clone usa o **mesmo SSID e a mesma
+> senha** da rede real. No lab, a senha era conhecida por ser rede própria; sem
+> ela, seria preciso capturar/quebrar o handshake WPA2. O que é sem credencial é
+> a **camada da câmera/app** (sem conta, sem `setwifi`, sem auth no broker).
+
 ## Por que precisa do deauth
 
 A câmera **não migra sozinha** pra um clone (mesmo SSID+senha): ela tem o AP real

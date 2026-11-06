@@ -27,7 +27,7 @@ vetores se distinguem pelo pré-requisito do atacante, não pela falha.
 | Fake server via DNS | controla DNS/rota | desviar `*.naxclow.com` | takeover remoto (controle total) | [achados_fakeserver](achados_fakeserver.md) |
 | MITM STA + DNS spoof | mesma LAN, gateway alheio | ARP poison na LAN | vira o cloud a partir da LAN | [runbook_mitm_dns](runbook_mitm_dns.md) |
 | Relay público (VPS) | redireciona o relay | VPS com IP público | **vídeo + áudio** no servidor do atacante | [achados_fakeserver_relay](achados_fakeserver_relay.md) |
-| Evil twin (deauth + clone) | AP clone da rede da vítima, no alcance | proximidade + deauth | câmera migra sozinha pro AP do atacante → controle (LED/`setwifi`) | [achados_evil_twin](achados_evil_twin.md) |
+| Evil twin (deauth + clone) | AP clone da rede da vítima, no alcance | proximidade + deauth + **credenciais da rede** (ou handshake quebrado) | câmera migra sozinha pro AP do atacante → controle (LED/`setwifi`) | [achados_evil_twin](achados_evil_twin.md) |
 
 ## Vetores provados
 

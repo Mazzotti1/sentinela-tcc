@@ -431,8 +431,8 @@ if(window.Hls && Hls.isSupported()){
                     user_id = os.environ.get('FAKE_SRV_USERID', '7eba2591eaa08c41e2f8de7733983f49')
                     ret = {"code": 200, "message": "OK", "data": {
                         "userInfo_userId": user_id,
-                        "ota_url": None,
-                        "ota_version": None,
+                        "ota_url": os.environ.get('OTA_URL') or None,
+                        "ota_version": os.environ.get('OTA_VERSION') or None,
                         "ntpTimer": int(datetime.timestamp(datetime.now())),
                         "userInfo_state": 1,
                         "timeZone": int(os.environ.get('FAKE_SRV_TIMEZONE', '-3')),
@@ -450,8 +450,8 @@ if(window.Hls && Hls.isSupported()){
             user_id = os.environ.get('FAKE_SRV_USERID', '7eba2591eaa08c41e2f8de7733983f49')
             ret = {"code": 200, "message": "OK", "data": {
                 "userInfo_userId": user_id,
-                "ota_url": None,
-                "ota_version": None,
+                "ota_url": os.environ.get('OTA_URL') or None,
+                "ota_version": os.environ.get('OTA_VERSION') or None,
                 "ntpTimer": int(datetime.timestamp(datetime.now())),
                 "userInfo_state": 1,
                 "timeZone": int(os.environ.get('FAKE_SRV_TIMEZONE', '-3')),
@@ -483,7 +483,7 @@ if(window.Hls && Hls.isSupported()){
                     "uid": uid,
                     "isBind": "8",
                     "domain": "v720.naxclow.com",
-                    "updateUrl": None,
+                    "updateUrl": os.environ.get('OTA_URL') or None,
                     "host": srv_host,
                     "currTime": f'{int(datetime.timestamp(datetime.now()))}',
                     "pwd": "deadbeef",

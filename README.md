@@ -1,62 +1,94 @@
-# Sentinela TCC
+# Sentinela
 
-Análise de segurança de uma câmera IP **Naxclow Y2SN** (V720).
-Investigamos como a câmera, o aplicativo e o servidor se comunicam, e
-se um atacante consegue assumir o controle sem a senha da rede.
+Ferramenta de verificação de segurança de câmeras IP **Naxclow Y2SN** (V720).
+
+Roda como um CLI único: sem argumentos mostra o banner e um menu navegável por
+setas; com um cenário roda direto. Cada cenário sobe o que precisa, indica o que
+fazer fisicamente na câmera, espera, valida e grava as evidências.
+
+```
+./sentinela                  menu interativo (banner + setas)
+./sentinela --list           lista os cenários
+./sentinela info             diagnóstico read-only
+./sentinela ap               câmera em modo AP
+./sentinela mitm             interceptação na LAN
+./sentinela dns              fake server + takeover
+./sentinela relay            controle + vídeo remoto (VPS)
+./sentinela evil-twin        AP clone + deauth (Kali)
+./sentinela down             derruba o laboratório
+```
+
+## Cenários
+
+| Cenário | O que prova | Precisa |
+|---|---|---|
+| `info` | diagnostica o ambiente (não altera nada) | — |
+| `ap` | acesso local sem autenticação: stream, SD, IR, flip | câmera em modo AP |
+| `mitm` | tráfego em claro na LAN + vídeo reconstruível | mesma LAN |
+| `dns` | a câmera aceita um cloud falso (takeover) | mesma LAN, `sudo` |
+| `relay` | controle e vídeo remotos, fora da LAN | VPS com IP público |
+| `evil-twin` | migra para AP clonado após deauth | Kali + dongle |
+
+Cada execução grava `results/<cenário>_<data>/` com `report.md` e os artefatos
+(pcap, vídeo, logs). O código de saída é 0 quando provado, 1 quando falhou.
+
+## Instalação
+
+```
+pip3 install -r requirements.txt
+brew install ettercap mosquitto        # macOS
+```
+
+Nas opções que precisam de root (`mitm`, `dns`, `relay`, `down`), a ferramenta
+pede `sudo` no momento certo.
 
 ## Estrutura
 
 ```
-src/                 Código do cliente e do servidor falso
-  a9_naxclow.py      CLI principal (entrada do programa: -l, -s, -f, -d, ...)
-  a9_live.py         Exibição/gravação do stream
-  v720_ap.py         Cliente que fala com a câmera em modo AP
-  v720_sta.py        Servidor falso: canal de dados TCP/UDP (relay)
-  v720_http.py       HTTP do servidor falso (provisionamento / bind)
-  v720_hls.py        JPEG -> HLS/H.264 (via ffmpeg)
-  cmd_udp.py         Códigos de comando do protocolo
-  prot_ap.py         Protocolo do modo AP
-  prot_udp.py, prot_json_udp.py, prot_xml_udp.py  Pacotes/parsing (header 20 bytes)
-  netcl*.py, netsrv*.py  Camada de rede (cliente/servidor TCP/UDP)
-  log.py             Logging
+sentinela                entry point
 
-scripts/
-  fakeserver/        Servidor falso / lab fake (fakesrv_lab.sh, fake_srv_cmd.sh)
-  mitm/              Interceptação (mitm_auto.sh, capture_stream.sh) e sondas (p2p_probe.sh)
-  mitm_dns/          ARP spoof + DNS spoof/DNAT (mitm_dns.sh) + ota_up.sh + runbooks
-  hotspot_ap/        Ataque via hotspot AP da própria câmera (+ README)
-  utils/             Extração de vídeo/credenciais (extract_mitm_video*.py, extract_mqtt_*.py)
+sentinela_cli/           a ferramenta
+  main.py                CLI, banner, menu e dispatch
+  menu.py                menu de setas (sem dependências externas)
+  ui.py                  banner ASCII e tema
+  core.py                execução, rede, evidência, pausas físicas
+  scenarios/             os cenários (um módulo)
 
-docs/
-  proximos_passos.md     MAPA: estado do lab, pendências e armadilhas (ponto de entrada)
-  tcc_resumo.md          Resumo para o TCC (linguagem simples)
-  achados_finais.md      Consolidação (OWASP/CVSS + provado vs pendente)
-  achados_ap.md          Achados do ataque via hotspot AP
-  achados_sta.md         Achados da interceptação na rede (STA)
-  achados_mqtt.md        Superfície de comandos do canal MQTT
-  achados_fakeserver.md  Achados do servidor falso (técnico)
-  achados_fakeserver_relay.md  Relay falso em IP público (VPS) — stream remoto
-  achados_sd_relay.md    SD pelo relay (sem modo AP) — testado, negativo
-  achados_ota.md         OTA/firmware — testado, negativo (update é do cloud via HTTPS)
-  achados_relay_controle.md  PTZ/LED pelo canal relay — funcionou (pulsos a 80 ms)
-  achados_ap_ir_flip.md  IR/flip no modo AP — funcionou
-  runbook_ota.md         Passo a passo do teste de OTA
-  achados_evil_twin.md   Evil twin (deauth + clone) — funcionou
-  conceito_hardware_drop.md  Modelo de ameaça: hardware drop + evil twin (a distância)
-  protocolo_naxclow.md   Mapeamento detalhado do protocolo
-  runbook_fakeserver_ap.md  Passo a passo do lab (AP isolado)
-  runbook_mitm_dns.md    Passo a passo do lab (MITM + DNS spoof)
-  todo_cenarios.md       Cenários de ataque planejados
+src/                     protocolo e fake server (Python)
+  a9_naxclow.py          CLI do protocolo (-l, -s, -f, -d, -i, -r, --dump)
+  v720_ap.py             cliente do modo AP
+  v720_sta.py            servidor falso: canal relay TCP/UDP
+  v720_http.py           HTTP do servidor falso
+  prot_*.py              framing (header de 20 bytes) e envelopes
+  cmd_udp.py             códigos de comando
+  netcl*.py, netsrv*.py  camada de rede
+  v720_hls.py            JPEG -> HLS (ffmpeg)
+
+scripts/                 os laboratórios (bash), usados pelos cenários
+  mitm_dns/              ARP/DNS spoof, DNAT, ota_up.sh, ptz.sh, ap_ir_flip.sh
+  mitm/                  mitm_auto.sh, capture_stream.sh, p2p_probe.sh
+  fakeserver/            fakesrv_lab.sh, fake_srv_cmd.sh
+  ap_atacante/           AP do atacante no dongle (Kali)
+  take3/                 relay na VPS
+  utils/                 extração de vídeo/credenciais
+
+docs/                    achados_*.md (evidências por vetor)
+                         ferramenta.md (manual de uso)
+                         protocolo_naxclow.md (referência)
+                         runbook_*.md (passo a passo manual)
+
+assets/                  logo (png e arte ASCII)
 ```
 
-## Como usar
+## Documentação
 
-Dependências e ambiente: veja `requirements.txt`. A CLI principal é
-`src/a9_naxclow.py`. O **ponto de entrada** para retomar o trabalho é
-`docs/proximos_passos.md` (estado do lab, pendências e armadilhas); o
-detalhe de cada vetor e o consolidado estão em `docs/achados_*.md`.
+- `docs/ferramenta.md` — manual de uso, cenário por cenário
+- `docs/achados_finais.md` — consolidação (OWASP/CVSS, provado vs. descartado)
+- `docs/tcc_resumo.md` — resumo em linguagem simples
+- `docs/proximos_passos.md` — estado do laboratório e armadilhas
+- `docs/protocolo_naxclow.md` — referência do protocolo
 
 ## Aviso
 
-Este projeto é para estudo e uso em ambiente controlado, com equipamento
-próprio. Não use contra câmeras ou redes de terceiros.
+Ambiente controlado, com equipamento próprio. Testar câmeras ou redes de
+terceiros é crime.

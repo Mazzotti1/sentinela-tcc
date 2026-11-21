@@ -59,6 +59,8 @@ DNAT_TARGET="${DNAT_TARGET:-}"                    # destino do DNAT (vazio = fak
 FAKE_SRV_RELAY_HOST="${FAKE_SRV_RELAY_HOST:-107.149.143.96}"  # IP publico do relay real (dnat desvia pro fake)
 DNAT_MODE="${DNAT_MODE:-all}"                     # 'all' (80/1883/29939-29942) ou 'relay' (so 29939-29942)
 HTTP_DNAT_PORT="${HTTP_DNAT_PORT:-80}"            # porta do fake HTTP na VPS (ex.: 8080 se a :80 da VPS estiver ocupada)
+OTA_URL="${OTA_URL:-}"                            # liga o OTA: URL publica do firmware (ex.: http://<LAN_IP>:80/fw.bin)
+OTA_VERSION="${OTA_VERSION:-}"                    # versao anunciada (maior que a da camera p/ o update ser considerado)
 
 # Portas do cloud desviadas pelo fallback 'dnat on' (por porta, nao por IP).
 # A camera tem um pool de IPs hardcoded — redirecionar por porta cobre todos.
@@ -313,29 +315,33 @@ etter_dns_path() {
 # Portas do cloud: HTTP 80, MQTT 1883, relay 29939-29942 (TCP e UDP).
 dnat_rules_on() {
   if (( IS_MAC )); then
+    # No macOS o destino tem que ser 127.0.0.1: redirecionar pro IP da propria LAN
+    # nao entrega no socket local (o SYN-ACK volta do host real). Ver a armadilha
+    # "macOS: pf rdr" no docs/proximos_passos.md.
+    local dest="127.0.0.1"
     if [[ "$DNAT_MODE" == "relay" ]]; then
       cat > "$PF_ANCHOR" <<EOF
-rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29939 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29941 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29939 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29941 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29939 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29940 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29941 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29942 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29939 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29940 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29941 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29942 -> $dest port $RELAY_PORT
 EOF
     else
       cat > "$PF_ANCHOR" <<EOF
-rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 80 -> $MY_IP port 80
-rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 1883 -> $MY_IP port 1883
-rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29939 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29941 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29939 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29940 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29941 -> $MY_IP port $RELAY_PORT
-rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29942 -> $MY_IP port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 80 -> $dest port 80
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 1883 -> $dest port 1883
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29939 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29940 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29941 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto tcp from $CAM_IP to ! $MY_IP port 29942 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29939 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29940 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29941 -> $dest port $RELAY_PORT
+rdr pass on $IFACE inet proto udp from $CAM_IP to ! $MY_IP port 29942 -> $dest port $RELAY_PORT
 EOF
     fi
     if ! grep -q 'rdr-anchor "mitm_dns"' "$PF_CONF"; then
@@ -483,10 +489,14 @@ cmd_up() {
   start_bg mqtt "exec '$MOSQ_SUB' -h $MY_IP -t '#' -v"
 
   say "[2/5] fake server -> $(log_of server)"
+  local ota_env=""
+  [[ -n "$OTA_URL" ]] && ota_env="$ota_env OTA_URL=$OTA_URL"
+  [[ -n "$OTA_VERSION" ]] && ota_env="$ota_env OTA_VERSION=$OTA_VERSION"
+  [[ -n "$ota_env" ]] && ok "OTA ligado:$ota_env"
   if (( IS_MAC )); then
-    start_bg server "cd '$REPO_ROOT' && PYTHONPATH='$PYPATH_USER' BROKER=$MY_IP FAKE_SRV_HOST=$MY_IP FAKE_SRV_RELAY_HOST=$FAKE_SRV_RELAY_HOST RELAY_PORT=$RELAY_PORT '$PYBIN' src/a9_naxclow.py -s -v"
+    start_bg server "cd '$REPO_ROOT' && PYTHONPATH='$PYPATH_USER' BROKER=$MY_IP FAKE_SRV_HOST=$MY_IP FAKE_SRV_RELAY_HOST=$FAKE_SRV_RELAY_HOST RELAY_PORT=$RELAY_PORT$ota_env '$PYBIN' src/a9_naxclow.py -s -v"
   else
-    start_bg server "cd '$REPO_ROOT' && BROKER=$MY_IP FAKE_SRV_HOST=$MY_IP FAKE_SRV_RELAY_HOST=$FAKE_SRV_RELAY_HOST RELAY_PORT=$RELAY_PORT '$PYBIN' src/a9_naxclow.py -s -v"
+    start_bg server "cd '$REPO_ROOT' && BROKER=$MY_IP FAKE_SRV_HOST=$MY_IP FAKE_SRV_RELAY_HOST=$FAKE_SRV_RELAY_HOST RELAY_PORT=$RELAY_PORT$ota_env '$PYBIN' src/a9_naxclow.py -s -v"
   fi
   sleep 1
   wait_port 80 10 && ok "fake server HTTP LISTEN :80" || warn "fake server HTTP nao subiu em :80 — '$0 logs server'"

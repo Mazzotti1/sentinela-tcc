@@ -42,3 +42,7 @@ presentation/
 design-system/
 *.pdf
 *.docx
+
+# Firmware servido pelo fake (OTA) — artefato de teste
+static/*.bin
+static/*.img

@@ -31,13 +31,17 @@ Doc de protocolo (payloads, portas, handshake): [`protocolo_naxclow.md`](protoco
 - ✅ **Modo combinado (controle + stream na VPS)** — **RESOLVIDO** (2026-11-03): a captura do `240` real (hotspot no Kali + `setwifi`) revelou os campos que o fake omitia — **`tcpPort` e `uid`** (causavam `errStatus 2`). Corrigido em `src/v720_http.py`; agora a câmera aceita o `240`, **abre o relay**, e o atacante recebe **vídeo real (640x480, JPEG)** + controle MQTT (`ledei`/`setwifi`). Ver [`runbook_mitm_dns.md`](runbook_mitm_dns.md).
 - ✅ **Evil twin (deauth + clone)** — **RESOLVIDO** (2026-11-04): clone do AP (mesmo SSID/senha) + **deauth** fez a câmera **migrar sozinha** pro AP do atacante; ela pegou IP/DNS dele, conectou no broker e obedeceu os comandos (`ledei`). Detalhe em [`achados_evil_twin.md`](achados_evil_twin.md).
 - ✅ **Vídeo via evil twin (fake na VPS + NAT restrito)** — validado (2026-11-04): mantendo o fake local pro controle/DNS e anunciando o relay na **VPS**, a câmera abriu o relay lá e o `/live` rendeu **vídeo (JPEG 640×480)**. Ver [`achados_evil_twin.md`](achados_evil_twin.md).
+- ❌ **OTA / firmware** — testado (2026-11-21): a câmera **recebe** `ota_url`/`ota_version` do fake e **ignora**; não tenta baixar. O update é orquestrado pelo cloud via **HTTPS** (`getNewVersion` → `mdfDevVersion`), então não cai por DNS/rota. Detalhe em [`achados_ota.md`](achados_ota.md).
 
 ## Pendente (ordem) — e onde rodar
 
-1. **OTA / firmware** — servir um `ota_url` pelo fake (`getDevInfo`/`getA9ConfCheck`) e ver se a câmera aceita update sem assinatura. O fake roda na VPS (Mac pode orquestrar via `ssh`; se precisar de DNS/DNAT local, exige Linux).
-2. **SD pelo app/cloud (extra, baixa prioridade)** — o caminho do relay deu negativo ([`achados_sd_relay.md`](achados_sd_relay.md)). Resta capturar o fluxo real do app na tela de gravações (MITM passivo) e/ou explorar `udpPlayBack` / `cloudStorage` (`249`).
+**Nada em aberto.** Todos os vetores planejados foram executados — os positivos documentados nos `achados_*.md` e os negativos em [achados_finais](achados_finais.md#testado-e-descartado).
 
-**Resumo de plataforma:** o **evil twin** e o **modo combinado** (DNS/DNAT local) prendem na Kali (Linux); o **OTA** dá pra tocar orquestrando pela VPS/Mac.
+**Não é pendência (já fechado):** evil twin (deauth + clone, **com vídeo**), modo combinado, relay público, AP, MITM STA, MQTT, SD no AP, **OTA** ([`achados_ota.md`](achados_ota.md)), **controle pelo canal relay** (PTZ/LED com pulsos a 80 ms — [`achados_relay_controle.md`](achados_relay_controle.md)) e **IR/flip no AP** ([`achados_ap_ir_flip.md`](achados_ap_ir_flip.md)). O **twin aberto** e o **crack do handshake WPA2** são variações de pré-requisito do evil twin — o ataque em si está provado com SSID+senha reais; se quiser fechar o pré-requisito, é um teste extra (Kali + dongle), não um vetor em aberto.
+
+**Descartado por decisão de escopo:** SD via app/cloud (exigiria CA no iPhone) e hardware drop (só modelo de ameaça, em [`conceito_hardware_drop.md`](conceito_hardware_drop.md)).
+
+**Resumo de plataforma:** o **evil twin** prende na Kali (Linux); todo o resto — OTA, controle por relay e IR/flip no AP — rodou no Mac.
 
 ## Armadilhas conhecidas (não repetir)
 
@@ -45,7 +49,11 @@ Doc de protocolo (payloads, portas, handshake): [`protocolo_naxclow.md`](protoco
 - **NAT probe é validado:** os **defaults do `v720_sta.py`** (`cliIp 191.187.210.110`, `cliPort 47006`, `cliNatIp 192.168.0.21`, `cliNatPort 53929`) são os valores do capture real. **Não** sobrescrever com valor errado (ex. `cliIp` = IP da VPS) — a câmera rejeita o `code 11` (sem `code 12`) e o canal não abre.
 - **Fake precisa de IP público:** a câmera só abre o canal de dados pra endpoint **público** (relay). Em IP local (AP isolado) ela registra mas nunca abre o `:29940`.
 - **Viewer tem que estar em 4G/3G:** na mesma WiFi a câmera conecta em P2P local e **não** passa pelo relay.
-- **macOS:** `pf rdr` não entrega o relay no socket local — usar Linux/iptables.
+- **macOS — `pf rdr` tem que apontar pra `127.0.0.1`, não pro IP da LAN.** Redirecionar pro próprio IP da interface não entrega no socket local (o SYN-ACK volta do host real). Corrigido em `mitm_dns.sh` (2026-11-21); `dnat on` agora funciona no Mac.
+- **DNS spoof sozinho não basta:** este firmware faz `getDevInfo` **por IP fixo** (`43.242.130.61:80`), não por DNS. Sem `dnat on`, a câmera fala com o cloud real mesmo com o DNS envenenado (visto em 2026-11-21). Só `v720.naxclow.com`/`v720.p2p.naxclow.com` passam pelo DNS.
+- **A câmera ignora `ota_url`/`ota_version`:** campo morto neste firmware. Não perder tempo tentando OTA só com o fake — ver [`achados_ota.md`](achados_ota.md).
+- **`sudo` limpa o ambiente:** `VAR=x sudo ./script` **não** repassa `VAR`. Use `./scripts/mitm_dns/ota_up.sh <cmd>`, que aplica as variáveis depois do `sudo`.
+- **A câmera muda de IP** entre sessões (DHCP). `ota_up.sh` descobre pelo OUI `5c:f1:50`; o default do script (`192.168.0.36`) quase nunca é o IP atual.
 - **Firmware cicla o TCP** (~12–47 s): o device re-registra sozinho; o fake mantém o device no `/dev/list` e o UDP vivo entre ciclos.
 
 ## Como subir o lab (relay falso)

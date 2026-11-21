@@ -43,7 +43,10 @@ len(4) cmd(2) msg_flag(1) deal_flag(1) forward_id(8) pkg_id(4) | payload
 | Parar stream | `408` | `409` | — |
 
 > **AP validado** (2026-11-01): via envelope `502`, a câmera listou e entregou gravações reais (`achados_ap.md`).
-> **Relay (sem AP) — a testar:** as mesmas ops no envelope `301` pelo canal de relay. Base: `caplive`/`baseinfo` já usam `301+3`/`301+4`. Só fecha com a câmera em **STA** + relay em **IP público** (VPS), porque ela só abre o canal de dados para endpoint público. Harness já no fake: `/dev/<uid>/sd?date=&hours=&minute=` e `/dev/<uid>/sdsave`.
+> **Relay (sem AP) — testado, negativo** (2026-11-02): as mesmas ops no envelope `301` são **ignoradas** pelo
+> firmware; ele responde ao `301` para `baseinfo` (`content.code 4`) e `open A/V` (`3`), mas não roteia
+> `400/402/404/406`. As gravações só saem pelo modo AP (`502`). Detalhe em [`achados_sd_relay.md`](achados_sd_relay.md).
+> Harness já no fake: `/dev/<uid>/sd?date=&hours=&minute=` e `/dev/<uid>/sdsave`.
 
 ## Atores e endereços (captura real)
 
@@ -154,7 +157,7 @@ Remontagem: `scripts/utils/extract_mitm_video_udp.py`.
 | MQTT subscribe/pub | tópicos `Info`/`Status`/`sub` | ✅ | OK |
 | Comando 216 (NTP) | ✅ | ✅ | OK |
 | **Comando 249 (storage)** | ✅ | ✅ (`v720_http.py`) | OK |
-| Comando 240 (abrir canal) | ✅ | ✅ | OK |
+| Comando 240 (abrir canal) | ✅ | ✅ (`tcpPort`+`uid` no payload) | OK |
 | Canal 29940 handshake 101/11/53/298/4/3 | ✅ | ✅ (proativo) | OK no relay público |
 | Stream MJPG/G711 | ✅ | ✅ (relay público) | OK |
 
@@ -164,5 +167,5 @@ Remontagem: `scripts/utils/extract_mitm_video_udp.py`.
 ## Pendências
 
 1. **Comando 249** — ✅ implementado (`v720_http.py`, entre `216` e `240`).
-2. **Abrir o canal 29940** — ✅ no relay público; ❌ em IP local (fake em AP isolado).
-3. **Se ainda não manter** (em IP local), capturar o fluxo REAL no momento exato do viewer (arpspoof na NET_2GB + abrir frame) e comparar byte a byte o handshake.
+2. **Abrir o canal 29940** — ✅ no relay público (e no modo combinado / evil twin com relay na VPS); ❌ em IP local (fake em AP isolado).
+3. **OTA / firmware** — o fake já emite `ota_url`/`ota_version`/`updateUrl` via env (`OTA_URL`, `OTA_VERSION`); falta um endpoint que sirva o arquivo e o teste de aceitação sem assinatura.

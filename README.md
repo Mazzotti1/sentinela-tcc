@@ -23,7 +23,7 @@ src/                 Código do cliente e do servidor falso
 scripts/
   fakeserver/        Servidor falso / lab fake (fakesrv_lab.sh, fake_srv_cmd.sh)
   mitm/              Interceptação (mitm_auto.sh, capture_stream.sh) e sondas (p2p_probe.sh)
-  mitm_dns/          ARP spoof + DNS spoof/DNAT (mitm_dns.sh) + runbook
+  mitm_dns/          ARP spoof + DNS spoof/DNAT (mitm_dns.sh) + ota_up.sh + runbooks
   hotspot_ap/        Ataque via hotspot AP da própria câmera (+ README)
   utils/             Extração de vídeo/credenciais (extract_mitm_video*.py, extract_mqtt_*.py)
 
@@ -37,6 +37,10 @@ docs/
   achados_fakeserver.md  Achados do servidor falso (técnico)
   achados_fakeserver_relay.md  Relay falso em IP público (VPS) — stream remoto
   achados_sd_relay.md    SD pelo relay (sem modo AP) — testado, negativo
+  achados_ota.md         OTA/firmware — testado, negativo (update é do cloud via HTTPS)
+  achados_relay_controle.md  PTZ/LED pelo canal relay — funcionou (pulsos a 80 ms)
+  achados_ap_ir_flip.md  IR/flip no modo AP — funcionou
+  runbook_ota.md         Passo a passo do teste de OTA
   achados_evil_twin.md   Evil twin (deauth + clone) — funcionou
   conceito_hardware_drop.md  Modelo de ameaça: hardware drop + evil twin (a distância)
   protocolo_naxclow.md   Mapeamento detalhado do protocolo

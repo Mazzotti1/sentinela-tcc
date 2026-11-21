@@ -128,11 +128,13 @@ Custom: `sudo ./scripts/mitm_dns/mitm_dns.sh takeover --no-stream 'led off'`
 ### Fase 5 — Stream (só se o relay :29940 registrar)
 
 O `takeover` já tenta: `p2p_watch` no server.log → `/dev/list` → snapshot + `/live`.
-Se a câmera **não** abrir o canal de dados, é o mesmo limite documentado no AP
-isolado (hipótese do relay em IP público) — nesse caso:
-1. garantir que `dnat on` está ativo (redireciona `107.149.143.90:29942`),
-2. power cycle + repetir,
-3. se persistir, **documentar como limite também neste vetor** — é achado.
+
+> **Atualização (2026-11-03):** o limite "a câmera não abre o canal de dados" **já foi
+> resolvido**. A causa era o `240` do fake omitir **`tcpPort`** e **`uid`** (a câmera
+> respondia `errStatus 2`). Corrigido em `src/v720_http.py` — mas o canal continua exigindo
+> endpoint **público**: com broker/HTTP/relay no Kali (IP local) o controle funciona e o
+> stream não; ver a seção [Modo combinado](#modo-combinado--controle--stream-numa-sessão-só-broker--http--relay-na-vps).
+> Se o `/live` ficar vazio aqui, suba o conjunto na VPS (ou anuncie o relay na VPS).
 
 Remontagem a partir do pcap principal:
 ```
@@ -140,7 +142,7 @@ python3 scripts/utils/extract_mitm_video.py docs/mitm_dns_out/cam_dns.pcap \
   --out docs/mitm_dns_out/extract --cam-ip 192.168.0.36
 ```
 
-### Fase 6 — Bônus: stream em STA com viewer aberto (pendência do achados_sta)
+### Fase 6 — Bônus: stream em STA com viewer aberto (feito em 2026-10-17)
 
 Sessão separada, **sem** DNS spoof (lab `down` antes). MITM puro com o `mitm_auto.sh`
 original, enquanto o app V720 fica com o viewer aberto — aí o stream real
@@ -149,6 +151,9 @@ câmera→cloud atravessa o Kali:
 ```
 sudo ./scripts/mitm/mitm_auto.sh 192.168.0.36 192.168.0.1 wlan0 300 mitm_stream_run
 ```
+
+Resultado: stream em STA (UDP) remontado — 16 frames JPEG 640×480 + áudio PCM. Ver
+[achados_sta](achados_sta.md#remontagem-do-stream-em-sta-udp--feito-2026-10-17).
 
 ### Fase 7 — Encerrar
 
@@ -268,24 +273,23 @@ gateway 192.168.0.1, atacante 192.168.0.34.
   do cloud (`39.108.132.112:1883`); regra pf rdr redirecionou pro broker falso.
   Takeover funcionou igual.
 
-### O que não funcionou
+### O que não funcionou (na 1ª rodada)
 
-- **Stream via relay (:29940)**: câmera nunca abriu canal de dados no relay
-  falso. Mesmo limite documentado no cenário AP isolado — hipótese: relay exige
-  IP público específico ou há validação adicional no firmware para o canal de
-  vídeo que não existe no canal MQTT de controle.
+- **Stream via relay (:29940) na rodada de 2026-09-27**: a câmera não abriu o canal de dados.
+  **Causa encontrada depois (2026-11-03):** o `240` do fake omitia `tcpPort` e `uid`
+  (`errStatus 2`); corrigido em `src/v720_http.py`. O canal segue exigindo endpoint
+  **público** — resolvido na seção [Modo combinado](#modo-combinado--controle--stream-numa-sessão-só-broker--http--relay-na-vps).
 
 ### Conclusão
 
 O vetor MITM+DNS confirma que a falha de confiança em DNS (explorada no AP
 isolado por um "atacante que controla DNS") também é explorável por qualquer
 dispositivo na mesma WiFi (ARP spoof). Mesmo achado, vetores de CVSS diferentes
-(`AV:A` aqui vs `AV:N` no cenário remoto). O limite de stream é consistente
-entre os dois cenários.
+(`AV:A` aqui vs `AV:N` no cenário remoto).
 
 | Objetivo | Status |
 |---|---|
 | DNS spoof desvia a câmera na rede real | ✅ confirmado — ettercap `dns_spoof` desviou queries |
 | Takeover MQTT sem credencial (vetor LAN) | ✅ confirmado — `ir on` e `reboot` aceitos sem auth |
-| Stream pelo fake server (:29940) | ❌ mesmo limite do AP — câmera não abre canal de dados |
-| Bônus: stream STA remontado com viewer aberto | ⏳ não tentado nesta sessão |
+| Stream pelo fake server (:29940) | ✅ resolvido — modo combinado na VPS (controle + vídeo) |
+| Bônus: stream STA remontado com viewer aberto | ✅ feito (2026-10-17) — 16 frames 640×480 + áudio |

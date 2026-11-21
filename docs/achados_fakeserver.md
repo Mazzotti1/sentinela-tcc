@@ -1,10 +1,12 @@
 # Achados — Fake Server (atacante remoto que controla DNS)
 
-Cenário: câmera em uso normal (modo STA). Atacante **não** está na LAN nem com proximidade física — ele **controla a resolução DNS / rota** da câmera (ISP malicioso, router comprometido, rogue AP, DNS hijack). A câmera acha que fala com o cloud da Naxclow; na verdade fala com o servidor do atacante.
+Cenário: câmera em uso normal (modo STA). O atacante **desvia a resolução DNS / rota** da câmera (router comprometido, DNS hijack; num cenário de ISP malicioso, sem proximidade). A câmera acha que fala com o cloud da Naxclow; na verdade fala com o servidor do atacante.
+
+> **O que foi de fato executado no lab:** a câmera foi colocada numa rede **em que o atacante é o gateway** (AP isolado no laptop) — pré-requisito `AV:A`. O caso "remoto sem estar na LAN", em que o atacante só controla DNS/rota de fora, é **análise de pré-requisito**, não um teste executado. Ver a nota de CVSS em [achados_finais](achados_finais.md#cvss-31--proposto-a-validar).
 
 Firmware `202601081657`, câmera Naxclow Y2SN (`devicesCode: 5c001502B330`). Ambiente controlado — câmera e servidor próprios.
 
-> **Desdobramento (2026-10-19):** rodar o fake num **IP público** (VPS) + desviar o relay (ARP spoof + DNAT, portas `29939`–`29942`) **destrava o stream** — a câmera registra e entrega **vídeo + áudio** ao atacante, remotamente e sem app. Ver [achados_fakeserver_relay](achados_fakeserver_relay.md).
+> **Desdobramento (2026-10-19):** rodar o fake num **IP público** (VPS) + desviar o relay (ARP spoof + DNAT, portas `29939`–`29942`) **destrava o stream** — a câmera registra e entrega **vídeo + áudio** ao atacante, sem app. Ver [achados_fakeserver_relay](achados_fakeserver_relay.md).
 
 ## Diferença dos vetores anteriores
 
@@ -67,13 +69,15 @@ BROKER=<IP_FAKE_SRV> DEV=5c001502B330 ./scripts/fakeserver/fake_srv_cmd.sh liste
 | Comando | JSON | Efeito |
 |---|---|---|
 | IR on/off | `{"code":202,"IrLed":*}` | visão noturna |
-| LED status | `{"code":210,"instLed":*}` | apaga LED **sem** parar gravação (câmera "invisível") |
+| LED EI | `{"code":220,"ledEI":*}` | apaga LED **sem** parar gravação (câmera "invisível") |
 | Gravação SD | `{"code":209,"sdCardReco":*}` | liga/desliga gravação |
 | Wifi scan | `{"code":211}` | mapeia redes vizinhas (`scanWifiBase64`) |
 | Set wifi | `{"code":204,"s":SSID,"p":PWD}` | **sequestra** câmera pra outra rede |
-| AP mode | `{"code":208}` | força modo AP |
 | Format SD | `{"code":207}` | destrói gravações |
 | Reboot | `{"code":299,"reboot":1}` | reinicia |
+
+> Os códigos **`210`** (`instLed`) e **`208`** (`apmode`) **não** produzem o efeito esperado
+> neste firmware — ver [achados_mqtt](achados_mqtt.md#inconclusivos--não-funcionam-via-mqtt).
 
 ## Prova de espionagem (stream remoto)
 
@@ -100,7 +104,7 @@ Remontagem/decodificação idêntica à de [achados_sta](achados_sta.md) (protoc
 
 ## Quão fácil / problemas
 
-- **Mais complexo que MITM STA.** Exige controlar DNS/rota (AP isolado ou router comprometido) + subir 3 serviços (HTTP, MQTT, fake TCP/UDP). Mas o **impacto é maior**: controle total + stream, remotamente, sem app nem estar na LAN.
+- **Mais complexo que MITM STA.** Exige controlar DNS/rota (AP isolado ou router comprometido) + subir 3 serviços (HTTP, MQTT, fake TCP/UDP). Mas o **impacto é maior**: controle total + stream, sem app e sem estar na LAN do alvo *quando* o atacante já controla o DNS/rota. No lab o atacante foi o **gateway** da câmera (AP isolado).
 - **Firmware novo quebrava o FSM.** `202601081657` responde forward `301` com `{code,target,status}` **sem** `content`. Fixes aplicados em [v720_sta.py](../src/v720_sta.py):
   1. `__fwd_resp_hnd` — tolera `301` sem `content` (era `KeyError`, matava a conexão).
   2. `__json_hnd` — guard em JSON sem campo `code`.
@@ -135,14 +139,14 @@ Dois problemas reais achados na validação do fluxo "live" com AP + uplink USB.
 ### O que CONSEGUIMOS
 
 - **Prova do vetor raiz confirmada:** a câmera aceita qualquer servidor que se diga cloud via DNS override, **sem autenticação, sem TLS**, e registra no canal de controle MQTT (assinatura `Naxclow/P2P/Users/Device/sub/<DEV>`).
-- **Controle de hardware via MQTT sem credencial:** comandos `code 202` (IR), `code 299` (reboot), `code 204` (sequestra rede), `code 207` (formata SD) são publicados e obedecidos — hakereza provado com a câmera conectada ao fake server.
+- **Controle de hardware via MQTT sem credencial:** comandos `code 202` (IR), `code 299` (reboot), `code 204` (sequestra rede), `code 207` (formata SD) são publicados e obedecidos — takeover provado com a câmera conectada ao fake server.
 - **Servidor fake robusto:** fixei crashes do firmware novo (keepalive TCP `0x0a` que matava o handler, e fechamento de conexão não-registrada que quebrava a lista de devices).
 - **Uplink do AP (internet pros clientes):** resolvido passando a variável `UPLINK` **dentro** do sudo (`sudo UPLINK=usb0 ./scripts/...`).
 - **Mapeamento completo do protocolo:** documentado em `protocolo_naxclow.md` — fluxo HTTP de provisionamento (bind + getDevInfo + getA9ConfCheck), sequência MQTT (`216`→`249`→`240`) e handshake do canal de dados (`101`→`11`→`53`→`301+298/4/3`).
 
 ### O que NÃO conseguimos (limite deste cenário — já superado)
 
-- **Stream no fake em IP local.** Neste cenário (fake em IP local / AP isolado) a câmera faz o provisionamento HTTP e o controle via MQTT contra o fake, mas **não abre o canal de dados TCP/UDP `:29940`** (o `/dev/list` fica vazio e o app mostra "offline").
+- **Stream no fake em IP local.** Neste cenário (fake em IP local / AP isolado) a câmera faz o provisionamento HTTP e o controle via MQTT contra o fake, mas **não abre o canal de dados TCP/UDP `:29940`** (o `/dev/list` fica vazio e o app mostra "offline"). **Limite confirmado:** é o endpoint — a câmera só abre o canal pra IP **público**.
 - **Era o endpoint, não o protocolo.** Com os tokens fixos (`cliToken`, `userId`) e os payloads (`216`/`249`/`240`) **idênticos** ao cloud real, a hipótese era o **relay de dados em IP público** (`107.149.x.x`). **Confirmado:** rodando o fake num **IP público** (VPS) com desvio do relay (`29939`–`29942`), a câmera registra e entrega **vídeo + áudio**. Ver [achados_fakeserver_relay](achados_fakeserver_relay.md).
 
 ### Resumo do estado por teste

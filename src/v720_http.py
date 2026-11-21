@@ -338,11 +338,13 @@ if(window.Hls && Hls.isSupported()){
                                 v = int(val)
                             except ValueError:
                                 pass
-                        elif k in ('date', 'hours', 'minute'):
+                        elif k != 'devicesCode':
                             try:
                                 extra[k] = int(val)
                             except ValueError:
-                                pass
+                                extra[k] = val
+                    if 'devTarget' not in extra:
+                        extra['devTarget'] = _dev.id
                     try:
                         _dev.send_forward(v, extra or None)
                     except Exception as e:
@@ -399,7 +401,7 @@ if(window.Hls && Hls.isSupported()){
     def do_POST(self):
         ret = None
         hdr = [
-            'HTTP/1.1 200',
+            'HTTP/1.1 200 OK',
             'Server: nginx/1.14.0 (Ubuntu)',
             f'Date: {email.utils.format_datetime(datetime.now())}',
             'Content-Type: application/json',
@@ -487,14 +489,14 @@ if(window.Hls && Hls.isSupported()){
                     "host": srv_host,
                     "currTime": f'{int(datetime.timestamp(datetime.now()))}',
                     "pwd": "deadbeef",
-                    "version": None
+                    "version": os.environ.get('OTA_VERSION') or None
                 }
             }
 
         if ret is not None:
             ret = json.dumps(ret)
             hdr.append(f'Content-Length: {len(ret)}')
-            hdr.append('\r\n')
+            hdr.append('')
             hdr.append(ret)
             resp = '\r\n'.join(hdr)
             self.info(f'sending: {resp}')

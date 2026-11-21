@@ -33,10 +33,14 @@ com QoS 1 e obedece os comandos.
 |---|---|---|
 | `led` | 210 | `instLed` não controla o LED físico neste firmware (o correto é `ledEI`, 220) |
 | `apmode` | 208 | reinicia mas **não entra em modo AP** real (AP é via canal relay, não MQTT) |
-| PTZ / motor | 212 | via relay (canal P2P), não MQTT |
-| flip / espelho | 216 | via relay |
-| `speedGrade` (qualidade) | 201 | via relay |
-| `movealert` | 205 | enviado, efeito não visível no `Device/Info` (provável notificação push) |
+| PTZ / motor | 212 | **funciona pelo canal relay** — a câmera se move. Ver [achados_relay_controle](achados_relay_controle.md) |
+| flip / espelho | 216 | **funciona pelo canal relay** (`mirrorFlip`) |
+| `speedGrade` (qualidade) | 201 | pelo canal relay: ecoado, sem efeito visível |
+| `movealert` | 205 | pelo canal relay: sem eco (provável notificação push) |
+
+> **Correção (2026-11-21):** estes comandos não estavam "inconclusivos por MQTT" — eles
+> simplesmente trafegam pelo **canal relay** (`301`), onde **funcionam**. PTZ e LED foram
+> confirmados visualmente. Ver [`achados_relay_controle.md`](achados_relay_controle.md).
 
 ## Evidências capturadas
 

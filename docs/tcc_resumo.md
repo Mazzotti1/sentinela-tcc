@@ -45,8 +45,10 @@ Testamos vários caminhos, do mais simples ao mais grave:
 
 4. **Servidor falso com vídeo (relay em IP público)** — colocando o
    servidor falso numa máquina com **IP público** (VPS) e desviando o canal
-   de vídeo, a câmera entregou **vídeo + áudio ao atacante, remotamente**,
-   sem app e sem estar na rede do alvo. Este é o resultado de maior impacto.
+   de vídeo, a câmera entregou **vídeo + áudio** ao atacante, sem app. O
+   atacante recebe a mídia **fora da rede do alvo** (na VPS); no laboratório,
+   o desvio do canal foi feito por um atacante **na mesma LAN**. Este é o
+   resultado de maior impacto.
 
 5. **Evil twin (réplica da rede + expulsão)** — criamos um **clone da rede
    da vítima** (mesmo nome e senha) e **expulsamos** a câmera da rede real.
@@ -56,11 +58,6 @@ Testamos vários caminhos, do mais simples ao mais grave:
    senha, ou o handshake WPA2 quebrado) assume a câmera só com proximidade e
    um computador — sem app e sem credencial da câmera.
 
-Caminhos testados que **não** funcionaram:
-
-- **Baixar o cartão SD pelo servidor falso/relay** — a câmera ignora os
-  comandos de SD fora do modo AP. As gravações só saem pelo hotspot local.
-
 ## O que conseguimos provar
 
 - A câmera **aceita um servidor falso** se o DNS/rota apontar para ele —
@@ -68,37 +65,46 @@ Caminhos testados que **não** funcionaram:
 - O **canal de controle não tem senha**: qualquer um que fale com ele pode
   dar comandos à câmera.
 - Toda a comunicação (controle e vídeo) trafega **em texto claro**, sem TLS.
-- O **vídeo e o áudio** podem ser recebidos **remotamente** pelo atacante,
-  sem app e sem estar na mesma rede.
+- O **vídeo e o áudio** podem ser recebidos **fora da rede do alvo** (no servidor do
+  atacante, na VPS), sem app. No laboratório, o desvio do canal foi feito de dentro da LAN;
+  o caso de um atacante puramente remoto exige controlar a rota/DNS do relay.
 - Um atacante **com as credenciais da rede** (ou o handshake WPA2 quebrado)
   consegue a câmera com um **clone do Wi-Fi + expulsão (deauth)** — por
   proximidade.
 - Um atacante que **controla DNS/rota não precisa da senha do Wi-Fi** para
-  assumir a câmera remotamente (fake server/relay).
+  assumir a câmera (fake server/relay). O teste em laboratório pôs o atacante como gateway
+  da câmera; o alcance "de fora da rede" é consequência desse controle de DNS/rota.
 - As **gravações do cartão SD** podem ser listadas e baixadas sem login pelo
   hotspot aberto da câmera.
 
 ## O que ainda falta
 
-- **Atualização de firmware (OTA)** — servir uma atualização pelo servidor
-  falso e ver se a câmera aceita **sem verificar assinatura**. É o próximo
-  teste.
-- **SD pelo app/cloud** (opcional) — capturar o fluxo real do app na tela
-  de gravações para tentar outro caminho além do hotspot local.
-- **Comandos MQTT secundários** — confirmar os comandos menos usados
-  (girar/mover, espelhar, sensibilidade de movimento, modo AP).
+**Nada em aberto.** Todos os vetores planejados foram testados.
+
+O **twin aberto** e o **crack do handshake WPA2** não são vetores novos: são variações do
+pré-requisito do evil twin (que já está provado com SSID+senha reais) e exigiriam Kali +
+dongle. O **SD via app/cloud** foi descartado (exigiria instalar um certificado no celular).
+
+## O que testamos e NÃO funcionou
+
+- **Baixar o cartão SD pelo servidor falso/relay** — a câmera ignora os comandos de SD fora
+  do modo AP. As gravações só saem pelo hotspot local.
+- **Atualização de firmware (OTA)** — o servidor falso anunciou uma versão mais nova e uma
+  URL de firmware; a câmera **ignorou as duas** e não baixou nada. O update é comandado pelo
+  aplicativo, por **HTTPS** — então não cai com o mesmo ataque de DNS/rota.
 
 ## Conclusão em poucas palavras
 
 A câmera apresenta **falhas reais e graves de segurança**: aceita servidor
 falso, tem canal de controle sem senha e não criptografa nada. Isso permite
 **(a) assumir o controle** (ligar/desligar, reiniciar, trocar a rede),
-**(b) espionar** o vídeo/áudio — tanto remotamente quanto de dentro da rede
-ou por proximidade — e **(c) extrair as gravações** do cartão SD. O caminho
+**(b) espionar** o vídeo/áudio — a partir da rede, por proximidade ou desviando o
+cloud/relay — e **(c) extrair as gravações** do cartão SD. O caminho
 que **dispensa a senha do Wi-Fi** é o servidor falso/relay via DNS/rota; o
-evil twin exige as credenciais da rede (ou o handshake WPA2 quebrado). Todos
-os principais vetores foram **provados em laboratório**; resta o teste de
-atualização de firmware (OTA).
+evil twin exige as credenciais da rede (ou o handshake WPA2 quebrado). Os
+principais vetores foram **provados em laboratório**; o teste de atualização de
+firmware (OTA) foi **negativo** — a câmera não aceita firmware pelo servidor falso,
+porque o update é comandado pelo app via HTTPS.
 
 ## Onde está cada detalhe
 
@@ -107,4 +113,5 @@ atualização de firmware (OTA).
 - `achados_fakeserver.md`, `achados_fakeserver_relay.md` — servidor falso e vídeo remoto.
 - `achados_evil_twin.md` — clone da rede + deauth.
 - `achados_sd_relay.md` — o teste de SD pelo relay (negativo).
+- `achados_ota.md` — o teste de OTA/firmware (negativo).
 - `proximos_passos.md` — estado do laboratório e próximos passos.

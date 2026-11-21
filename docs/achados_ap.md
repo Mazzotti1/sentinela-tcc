@@ -15,7 +15,7 @@ Problema: enquanto está em AP, qualquer um no alcance do WiFi entra sem senha e
 | Stream ao vivo | `python3 src/a9_naxclow.py -l -o stream.avi` | ✅ intercepta o vídeo que a câmera grava **agora**, só por estar na WiFi dela. Sem login. |
 | Conexão TCP | — | Aceita token literal `"This is TEST token"`, hardcoded. Sem auth real. |
 
-Testados: `-l` (stream), `-f` (lista SD), `-d` (baixa gravação) e `--dump` (baixa todas as gravações). Não testados aqui: `-i`/`-r` (IR/flip) e `-s` (fake server, cenário diferente).
+Testados: `-l` (stream), `-f` (lista SD), `-d` (baixa gravação), `--dump` (baixa todas as gravações), `-i` (IR) e `-r` (flip). Só `-s` (fake server) é cenário diferente. IR/flip: [`achados_ap_ir_flip.md`](achados_ap_ir_flip.md).
 
 ## Extração do cartão SD — gravações sem autenticação
 
@@ -59,7 +59,10 @@ O download sai como `.avi` (MJPG) válido, **sem credencial**.
 
 **OWASP IoT:** gravações acessíveis sem autenticação → **I3** (Insecure Ecosystem Interfaces) + **I6** (privacidade — exposição de mídia gravada).
 
-> **Desdobramento possível (não testado):** as mesmas operações de SD (códigos `400`–`407`) também podem trafegar no **canal relay/fake server** (envelope de forward `code:301` em vez de `502`), o que permitiria exfiltrar gravações **remotamente, sem modo AP** — reusando a infra do relay público. Mapeado, ainda não executado.
+> **Desdobramento testado (negativo):** as mesmas operações de SD (códigos `400`–`407`) no
+> **canal relay/fake server** (envelope de forward `code:301` em vez de `502`) **não são
+> atendidas** por este firmware — a câmera ignora o pedido. As gravações só saem pelo modo
+> AP. Detalhe em [achados_sd_relay](achados_sd_relay.md).
 
 ## Vulnerabilidades (mapa OWASP IoT)
 

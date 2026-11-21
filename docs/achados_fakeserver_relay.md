@@ -19,8 +19,12 @@ Ambiente controlado — câmera e servidor próprios.
 | **Relay público (este)** | **redireciona o relay pra VPS própria** | **registro + stream (vídeo/áudio) no servidor do atacante** |
 
 Aqui o atacante **é o relay**. A câmera conecta nele por conta própria e entrega a
-mídia — **sem app, sem credencial, sem estar na mesma rede do alvo** (basta controlar
-a rota/DNS do relay).
+mídia — **sem app e sem credencial**. O que o atacante precisa é **desviar a rota/DNS do
+relay**.
+
+> **Como foi executado no lab:** ARP spoof + DNAT na **LAN da vítima** (Kali na mesma rede).
+> O caso "atacante fora da LAN, só controlando DNS/rota" é o **pré-requisito remoto** que o
+> vetor habilita — não foi medido num cenário sem presença na LAN.
 
 ## Por que precisa de IP público
 
@@ -128,8 +132,9 @@ header de 20 bytes; `cmd 1 = JPEG` (HEAD/BODY/END), `cmd 6 = PCM`, `cmd 4 = G711
 ## Quão fácil / problemas
 
 - **É o vetor mais "infra" de todos:** exige uma **VPS com IP público** + redirecionar o
-  relay (ARP spoof/DNAT na LAN **ou** controle de DNS/rota). Em impactos, é o mais
-  grave: o atacante recebe o stream **remotamente**, sem app e sem estar na LAN do alvo.
+  relay (ARP spoof/DNAT na LAN **ou** controle de DNS/rota). Em impactos, é o mais grave: o
+  atacante recebe o stream **sem app e sem estar na LAN do alvo** (a mídia vai pra VPS dele).
+  No lab, o desvio foi feito com ARP spoof + DNAT na mesma LAN.
 - **Em IP local não funciona:** a câmera só abre o canal pra endpoint **público** (relay).
   Foi o que travava o [fake server por DNS](achados_fakeserver.md).
 - **Porta do relay muda** (`29939`–`29942`): o DNAT tem que cobrir a faixa, em TCP e UDP.

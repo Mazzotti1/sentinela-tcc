@@ -17,6 +17,7 @@ fazer fisicamente na câmera, espera, valida e grava as evidências.
 ./sentinela evil-twin        AP clone + deauth (Kali)
 ./sentinela down             derruba o laboratório
 ```
+<img width="587" height="657" alt="Captura de Tela 2026-11-21 às 18 12 32" src="https://github.com/user-attachments/assets/f2a1ad75-6abd-4d5e-88a3-cb4a7189882e" />
 
 ## Cenários
 

@@ -19,6 +19,19 @@ fazer fisicamente na câmera, espera, valida e grava as evidências.
 ```
 <img width="587" height="657" alt="Captura de Tela 2026-11-21 às 18 12 32" src="https://github.com/user-attachments/assets/f2a1ad75-6abd-4d5e-88a3-cb4a7189882e" />
 
+## Servidor MCP (para agentes de IA)
+
+Expõe as mesmas capacidades como ferramentas MCP, para agentes (Claude, Cursor,
+Zed) executarem e consultarem a pesquisa.
+
+```bash
+./sentinela-mcp              # servidor JSON-RPC sobre stdio
+```
+
+Registro e catálogo de ferramentas: **[docs/mcp.md](docs/mcp.md)**. As
+ferramentas ativas exigem `confirm: true` — o consentimento é do operador, não
+do agente.
+
 ## Cenários
 
 | Cenário | O que prova | Precisa |
@@ -46,7 +59,11 @@ pede `sudo` no momento certo.
 ## Estrutura
 
 ```
-sentinela                entry point
+sentinela                entry point da CLI
+sentinela-mcp            entry point do servidor MCP
+
+mcp_server/
+  server.py              JSON-RPC 2.0 sobre stdio, sem dependencias
 
 sentinela_cli/           a ferramenta
   main.py                CLI, banner, menu e dispatch
@@ -74,7 +91,8 @@ scripts/                 os laboratórios (bash), usados pelos cenários
   utils/                 extração de vídeo/credenciais
 
 docs/                    achados_*.md (evidências por vetor)
-                         ferramenta.md (manual de uso)
+                         ferramenta.md (manual da CLI)
+                         mcp.md (integração com agentes de IA)
                          protocolo_naxclow.md (referência)
                          runbook_*.md (passo a passo manual)
 

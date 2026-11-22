@@ -23,6 +23,9 @@ IFACE = os.environ.get("IFACE", "en0" if IS_MAC else "wlan0")
 
 THEME = Theme()
 
+# Modo agente (MCP): sem terminal para responder perguntas nem digitar sudo.
+NONINTERACTIVE = os.environ.get("SENTINELA_NONINTERACTIVE") == "1"
+
 
 class Abort(Exception):
     """Falha de pre-requisito: encerra o cenario e vai para o relatorio."""
@@ -67,10 +70,18 @@ def die(msg):
 
 # ---------------------------------------------------------------- execucao
 def run(cmd, sudo=False, check=True, timeout=None, capture=None):
-    """Roda um comando. Com sudo nao capturamos: o prompt de senha precisa do TTY."""
+    """Roda um comando.
+
+    Com sudo nao capturamos a saida por padrao: o prompt de senha precisa do
+    terminal. Em modo nao-interativo (agente MCP) usamos `sudo -n`, que falha
+    na hora em vez de ficar esperando uma senha que ninguem vai digitar.
+    """
     if isinstance(cmd, str):
         cmd = cmd.split()
-    full = (["sudo"] if sudo else []) + list(cmd)
+    sudo_prefix = []
+    if sudo:
+        sudo_prefix = ["sudo", "-n"] if NONINTERACTIVE else ["sudo"]
+    full = sudo_prefix + list(cmd)
     if capture is None:
         capture = not sudo
     if sudo:
@@ -106,6 +117,10 @@ def require(binary, hint):
         die(f"falta '{binary}' — {hint}")
 
 
+# Em modo nao-interativo as pausas fisicas viram avisos e as confirmacoes sao
+# consideradas dadas (o consentimento veio pelo contrato da ferramenta).
+
+
 def ask_physical(title, lines):
     """Pausa para a acao fisica — unico ponto onde o roteiro para."""
     t = THEME
@@ -115,6 +130,9 @@ def ask_physical(title, lines):
     for ln in lines:
         say(t.yellow("  │ ") + ln)
     say(t.yellow("  └" + "─" * 66))
+    if NONINTERACTIVE:
+        warn("modo agente: seguindo sem esperar ENTER")
+        return
     try:
         input(f"  {t.bold('ENTER quando terminar')} ")
     except EOFError:
@@ -126,7 +144,7 @@ def ask_physical(title, lines):
 
 
 def confirm(question, auto=False):
-    if auto:
+    if auto or NONINTERACTIVE:
         ok(f"{question} (auto)")
         return
     try:
@@ -206,6 +224,18 @@ def tcp_open(host, port, timeout=3):
             return True
     except OSError:
         return False
+
+
+def http_get_json(url, timeout=5):
+    """GET que devolve (ok, objeto). ok=False em qualquer falha de rede."""
+    import json as _json
+    import urllib.error
+    import urllib.request
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return True, _json.loads(r.read().decode("utf-8", "replace") or "null")
+    except (urllib.error.URLError, OSError, ValueError):
+        return False, None
 
 
 # ---------------------------------------------------------------- evidencia

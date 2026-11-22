@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "sentinela": {
+      "transport": "stdio",
+      "enabled": true,
+      "command": "/Users/gabriel.mazzotti/Documents/dev/git/sentinela/sentinela-mcp"
+    }
+  }
+}
